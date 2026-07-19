@@ -53,6 +53,35 @@ describe("conversion core", () => {
     expect(statistics.maximumKmh!).toBeLessThan(10);
   });
 
+  it("retains timestamps from timed points when endpoints have coordinates only", async () => {
+    const activity = parseGpx(
+      new TextEncoder().encode(
+        `<gpx><trk><trkseg><trkpt lat="60" lon="24"/><trkpt lat="60" lon="24.01"><time>2026-07-14T10:11:00Z</time></trkpt><trkpt lat="60" lon="24.02"><time>2026-07-14T10:11:06Z</time></trkpt><trkpt lat="60" lon="24.03"/></trkseg></trk></gpx>`,
+      ),
+      "endpoint-times.gpx",
+      "1".repeat(64),
+    );
+    const quads = new Parser().parse(
+      await serializeActivity(
+        activity,
+        calculateStatistics(activity),
+        "../../source-files/2026/endpoint-times.gpx",
+      ),
+    );
+    const timeValue = (property: string) =>
+      quads.find(
+        (quad) =>
+          quad.subject.equals(namedNode("#activity")) &&
+          quad.predicate.equals(schema(property)),
+      )?.object;
+    const start = timeValue("startTime"),
+      end = timeValue("endTime");
+    if (start?.termType !== "Literal" || end?.termType !== "Literal")
+      throw new Error("Expected endpoint date literals");
+    expect(start.value).toBe("2026-07-14T10:11:00Z");
+    expect(end.value).toBe("2026-07-14T10:11:06Z");
+  });
+
   it("preserves source-order locations, includes all valid points in bounds, and does not bridge elevation segments", async () => {
     const xml = `<gpx><trk><trkseg><trkpt lat="60.3" lon="25.4"><ele>10</ele></trkpt><trkpt lat="60.1" lon="25.9"><ele>20</ele></trkpt></trkseg><trkseg><trkpt lat="60.4" lon="25.2"><ele>100</ele></trkpt></trkseg></trk></gpx>`;
     const activity = parseGpx(
@@ -287,15 +316,21 @@ describe("RDF serialization", () => {
         quad.subject.equals(namedNode("#activity")) &&
         quad.predicate.equals(schema("startTime")),
     )?.object;
-    expect(startTime?.value).toBe("2026-07-14T10:11:00Z");
-    expect(startTime?.datatype.value).toBe(
+    expect(startTime?.termType).toBe("Literal");
+    if (startTime?.termType !== "Literal")
+      throw new Error("Expected a date literal");
+    expect(startTime.value).toBe("2026-07-14T10:11:00Z");
+    expect(startTime.datatype.value).toBe(
       "http://www.w3.org/2001/XMLSchema#dateTime",
     );
     const latitude = quads.find((quad) =>
       quad.predicate.equals(schema("latitude")),
     )?.object;
-    expect(latitude?.value).toBe("60.123456789");
-    expect(latitude?.datatype.value).not.toBe(
+    expect(latitude?.termType).toBe("Literal");
+    if (latitude?.termType !== "Literal")
+      throw new Error("Expected a numeric literal");
+    expect(latitude.value).toBe("60.123456789");
+    expect(latitude.datatype.value).not.toBe(
       "http://www.w3.org/2001/XMLSchema#string",
     );
   });

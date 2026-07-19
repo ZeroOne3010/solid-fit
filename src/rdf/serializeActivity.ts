@@ -62,17 +62,18 @@ export async function serializeActivity(
     ]);
   }
 
-  for (const [property, point] of [
-    ["startTime", stats.start],
-    ["endTime", stats.end],
+  for (const [property, endpoint, time, timeText] of [
+    ["startTime", stats.start, stats.startTime, stats.startTimeText],
+    ["endTime", stats.end, stats.endTime, stats.endTimeText],
   ] as const) {
-    if (point?.time)
+    const timestamp = endpoint?.time ?? time;
+    if (timestamp)
       writer.addQuad(
         quad(
           activityNode,
           schema(property),
           literal(
-            point.timeText ?? point.time.toISOString(),
+            endpoint?.timeText ?? timeText ?? timestamp.toISOString(),
             namedNode(XSD + "dateTime"),
           ),
         ),

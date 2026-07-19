@@ -37,7 +37,11 @@ export interface ActivityStatistics {
   start?: NormalizedTrackPoint;
   end?: NormalizedTrackPoint;
   startTime?: Date;
+  /** Original GPX lexical form for startTime, retained to preserve precision. */
+  startTimeText?: string;
   endTime?: Date;
+  /** Original GPX lexical form for endTime, retained to preserve precision. */
+  endTimeText?: string;
   elapsedSeconds?: number;
   movingSeconds?: number;
   distanceMeters: number;
