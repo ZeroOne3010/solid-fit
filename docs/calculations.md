@@ -1,0 +1,3 @@
+# Calculations
+
+Distance uses Haversine with the IUGG mean Earth radius of 6,371,008.8 metres, only between adjacent points in the same segment. Elapsed duration is the difference between first and last valid source-order timestamps. Moving pairs require positive time, a gap of at most 30 seconds, and speed of at least 0.5 m/s. Average speed is total distance divided by moving time. Maximum speed considers valid pairs lasting at least five seconds. Elevation gain/loss is calculated separately per segment and only changes of at least 3 metres count. Heart-rate min/max/mean use plausible positive samples.
