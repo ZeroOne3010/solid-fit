@@ -1,0 +1,3 @@
+# Data model
+
+Normalized activities preserve `tracks`, `segments`, and coordinate points so future derived processors can safely work without joining discontinuities. IDs combine a UTC start-time prefix (or `unknown-date`) and the first 12 characters of the byte-level SHA-256 hash. Turtle uses `<#activity>`, Schema.org quantitative values and observations; GPX resources are linked with paths relative to the activity document. Units are km, km/h, metres, and seconds. Format-specific parsers feed the model; future FIT/TCX readers and derived-data processors can use the same interfaces.

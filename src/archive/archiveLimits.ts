@@ -1,0 +1,1 @@
+export const archiveLimits={maximumInputFiles:10_000,maximumCompressedBytes:1_000_000_000,maximumUncompressedBytes:2_000_000_000,maximumSingleGpxBytes:100_000_000};
