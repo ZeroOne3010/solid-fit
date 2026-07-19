@@ -37,6 +37,93 @@ describe("conversion core", () => {
     );
     expect(new Parser().parse(turtle).length).toBeGreaterThan(0);
   });
+
+  it("preserves source-order locations, includes all valid points in bounds, and does not bridge elevation segments", async () => {
+    const xml = `<gpx><trk><trkseg><trkpt lat="60.3" lon="25.4"><ele>10</ele></trkpt><trkpt lat="60.1" lon="25.9"><ele>20</ele></trkpt></trkseg><trkseg><trkpt lat="60.4" lon="25.2"><ele>100</ele></trkpt></trkseg></trk></gpx>`;
+    const activity = parseGpx(
+      new TextEncoder().encode(xml),
+      "route.gpx",
+      "c".repeat(64),
+    );
+    const statistics = calculateStatistics(activity);
+
+    expect(statistics.start).toMatchObject({ latitude: 60.3, longitude: 25.4 });
+    expect(statistics.end).toMatchObject({ latitude: 60.4, longitude: 25.2 });
+    expect(statistics.bounds).toEqual({
+      minLatitude: 60.1,
+      minLongitude: 25.2,
+      maxLatitude: 60.4,
+      maxLongitude: 25.9,
+    });
+    expect(statistics.elevationGain).toBe(10);
+    expect(statistics.elevationLoss).toBe(0);
+
+    const quads = new Parser().parse(
+      await serializeActivity(
+        activity,
+        statistics,
+        "../../source-files/2026/route.gpx",
+      ),
+    );
+    const objectFor = (
+      subject: (typeof quads)[number]["subject"],
+      predicate: string,
+    ) =>
+      quads.find(
+        (quad) =>
+          quad.subject.equals(subject) &&
+          quad.predicate.equals(schema(predicate)),
+      )?.object;
+    const locationCoordinates = (property: string) => {
+      const place = objectFor(namedNode("#activity"), property)!;
+      const geo = objectFor(place, "geo")!;
+      return {
+        latitude: objectFor(geo, "latitude")?.value,
+        longitude: objectFor(geo, "longitude")?.value,
+      };
+    };
+
+    expect(locationCoordinates("fromLocation")).toEqual({
+      latitude: "60.3",
+      longitude: "25.4",
+    });
+    expect(locationCoordinates("toLocation")).toEqual({
+      latitude: "60.4",
+      longitude: "25.2",
+    });
+    const boundsValue = objectFor(namedNode("#bounds"), "value")!;
+    expect(objectFor(boundsValue, "box")?.value).toBe("60.1 25.2 60.4 25.9");
+    for (const [id, property, value] of [
+      ["elevation-gain", "ElevationGain", "10"],
+      ["elevation-loss", "ElevationLoss", "0"],
+    ]) {
+      const observation = namedNode(`#${id}`);
+      expect(objectFor(observation, "measuredProperty")?.value).toBe(property);
+      const quantitativeValue = objectFor(observation, "value")!;
+      expect(objectFor(quantitativeValue, "value")?.value).toBe(value);
+    }
+  });
+
+  it("omits elevation change observations when no segment has two elevation samples", async () => {
+    const activity = parseGpx(
+      new TextEncoder().encode(
+        '<gpx><trk><trkseg><trkpt lat="60" lon="24"><ele>12</ele></trkpt></trkseg><trkseg><trkpt lat="61" lon="25"><ele>100</ele></trkpt></trkseg></trk></gpx>',
+      ),
+      "sparse-elevation.gpx",
+      "d".repeat(64),
+    );
+    const statistics = calculateStatistics(activity);
+    expect(statistics.elevationGain).toBeUndefined();
+    expect(statistics.elevationLoss).toBeUndefined();
+
+    const turtle = await serializeActivity(
+      activity,
+      statistics,
+      "../../source-files/2026/sparse-elevation.gpx",
+    );
+    expect(turtle).not.toContain("ElevationGain");
+    expect(turtle).not.toContain("ElevationLoss");
+  });
 });
 
 describe("RDF serialization", () => {

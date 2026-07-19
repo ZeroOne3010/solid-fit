@@ -37,6 +37,23 @@ export async function serializeActivity(
   if (activity.name)
     writer.addQuad(quad(activityNode, schema("name"), literal(activity.name)));
 
+  for (const [property, point] of [
+    ["fromLocation", stats.start],
+    ["toLocation", stats.end],
+  ] as const) {
+    if (!point) continue;
+    const place = blankNode();
+    const geo = blankNode();
+    writer.addQuads([
+      quad(activityNode, schema(property), place),
+      quad(place, rdfType, schema("Place")),
+      quad(place, schema("geo"), geo),
+      quad(geo, rdfType, schema("GeoCoordinates")),
+      quad(geo, schema("latitude"), literal(point.latitude)),
+      quad(geo, schema("longitude"), literal(point.longitude)),
+    ]);
+  }
+
   for (const [property, date] of [
     ["startTime", stats.startTime],
     ["endTime", stats.endTime],
@@ -137,6 +154,41 @@ export async function serializeActivity(
       UNITS.metres,
       "Maximum",
     );
+  if (stats.elevationGain !== undefined)
+    addObservation(
+      "elevation-gain",
+      "ElevationGain",
+      stats.elevationGain,
+      UNITS.metres,
+    );
+  if (stats.elevationLoss !== undefined)
+    addObservation(
+      "elevation-loss",
+      "ElevationLoss",
+      stats.elevationLoss,
+      UNITS.metres,
+    );
+  if (stats.bounds) {
+    const bounds = namedNode("#bounds");
+    const geoShape = blankNode();
+    const { minLatitude, minLongitude, maxLatitude, maxLongitude } =
+      stats.bounds;
+    writer.addQuads([
+      quad(activityNode, schema("result"), bounds),
+      quad(bounds, rdfType, schema("Observation")),
+      quad(bounds, schema("observationAbout"), activityNode),
+      quad(bounds, schema("measuredProperty"), literal("GeographicalBounds")),
+      quad(bounds, schema("value"), geoShape),
+      quad(geoShape, rdfType, schema("GeoShape")),
+      quad(
+        geoShape,
+        schema("box"),
+        literal(
+          `${minLatitude} ${minLongitude} ${maxLatitude} ${maxLongitude}`,
+        ),
+      ),
+    ]);
+  }
 
   return new Promise((resolve, reject) =>
     writer.end((error, result) => (error ? reject(error) : resolve(result))),
