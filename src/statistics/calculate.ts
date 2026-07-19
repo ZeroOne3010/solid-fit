@@ -4,6 +4,7 @@ import type {
   NormalizedTrackPoint,
 } from "../model/activity";
 import { movementDefaults } from "./config";
+
 /** Haversine using the IUGG mean Earth radius of 6,371,008.8 metres. */
 const R = 6371008.8;
 const radians = (v: number) => (v * Math.PI) / 180;
@@ -20,6 +21,70 @@ export const distanceBetween = (
       Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 };
+
+/**
+ * Finds the fastest valid rolling window within one GPX segment. Consecutive
+ * valid point pairs form a run; a non-increasing timestamp or non-finite
+ * distance ends that run, so a window can never bridge invalid data or segment
+ * boundaries. For each endpoint, the leading point advances while the window
+ * still satisfies the configured minimum duration. This yields the shortest
+ * qualifying (and therefore most local) rolling window for that endpoint,
+ * while avoiding single-pair GPS spikes.
+ */
+function maximumRollingSpeed(
+  points: NormalizedTrackPoint[],
+  minimumSeconds: number,
+): number | undefined {
+  let maximum: number | undefined;
+  let run: { point: NormalizedTrackPoint; distance: number }[] = [];
+  const considerRun = () => {
+    let start = 0;
+    for (let end = 1; end < run.length; end++) {
+      while (
+        start + 1 < end &&
+        (run[end].point.time!.getTime() -
+          run[start + 1].point.time!.getTime()) /
+          1000 >=
+          minimumSeconds
+      )
+        start++;
+      const duration =
+        (run[end].point.time!.getTime() - run[start].point.time!.getTime()) /
+        1000;
+      if (duration < minimumSeconds || duration <= 0) continue;
+      const distance = run[end].distance - run[start].distance;
+      if (Number.isFinite(distance) && distance >= 0)
+        maximum = Math.max(maximum ?? 0, distance / duration);
+    }
+  };
+  const flush = () => {
+    considerRun();
+    run = [];
+  };
+  for (const point of points) {
+    if (!point.time) {
+      flush();
+      continue;
+    }
+    if (!run.length) {
+      run.push({ point, distance: 0 });
+      continue;
+    }
+    const previous = run.at(-1)!;
+    const duration =
+      (point.time.getTime() - previous.point.time!.getTime()) / 1000;
+    const distance = distanceBetween(previous.point, point);
+    if (duration <= 0 || !Number.isFinite(distance)) {
+      flush();
+      run.push({ point, distance: 0 });
+      continue;
+    }
+    run.push({ point, distance: previous.distance + distance });
+  }
+  flush();
+  return maximum;
+}
+
 export function calculateStatistics(
   activity: NormalizedActivity,
 ): ActivityStatistics {
@@ -37,7 +102,7 @@ export function calculateStatistics(
     result.elapsedSeconds =
       (result.endTime.getTime() - result.startTime.getTime()) / 1000;
   let moving = 0,
-    max = 0;
+    maximumSpeed: number | undefined;
   const elevations: number[] = [];
   let hasElevationPair = false;
   for (const track of activity.tracks)
@@ -62,10 +127,14 @@ export function calculateStatistics(
             speed >= movementDefaults.minimumSpeedMetersPerSecond
           )
             moving += seconds;
-          if (seconds >= movementDefaults.maximumSpeedWindowSeconds)
-            max = Math.max(max, speed);
         }
       }
+      const segmentMaximum = maximumRollingSpeed(
+        seg.points,
+        movementDefaults.maximumSpeedWindowSeconds,
+      );
+      if (segmentMaximum !== undefined)
+        maximumSpeed = Math.max(maximumSpeed ?? 0, segmentMaximum);
       const es = seg.points
         .map((p) => p.elevationMeters)
         .filter((v): v is number => v !== undefined);
@@ -86,7 +155,7 @@ export function calculateStatistics(
   }
   result.movingSeconds = moving || undefined;
   if (moving) result.averageMovingKmh = (result.distanceMeters / moving) * 3.6;
-  if (max) result.maximumKmh = max * 3.6;
+  if (maximumSpeed !== undefined) result.maximumKmh = maximumSpeed * 3.6;
   if (elevations.length) {
     result.minimumElevation = Math.min(...elevations);
     result.maximumElevation = Math.max(...elevations);

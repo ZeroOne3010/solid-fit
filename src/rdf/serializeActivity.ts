@@ -1,4 +1,5 @@
 import { DataFactory, Writer } from "n3";
+import packageJson from "../../package.json";
 import type { ActivityStatistics, NormalizedActivity } from "../model/activity";
 
 const { blankNode, literal, namedNode, quad } = DataFactory;
@@ -34,6 +35,13 @@ export async function serializeActivity(
   writer.addQuad(
     quad(activityNode, schema("exerciseType"), literal(activity.activityType)),
   );
+  const instrument = blankNode();
+  writer.addQuads([
+    quad(activityNode, schema("instrument"), instrument),
+    quad(instrument, rdfType, schema("SoftwareApplication")),
+    quad(instrument, schema("name"), literal("Solid Fit Converter")),
+    quad(instrument, schema("softwareVersion"), literal(packageJson.version)),
+  ]);
   if (activity.name)
     writer.addQuad(quad(activityNode, schema("name"), literal(activity.name)));
 
@@ -54,16 +62,19 @@ export async function serializeActivity(
     ]);
   }
 
-  for (const [property, date] of [
-    ["startTime", stats.startTime],
-    ["endTime", stats.endTime],
+  for (const [property, point] of [
+    ["startTime", stats.start],
+    ["endTime", stats.end],
   ] as const) {
-    if (date)
+    if (point?.time)
       writer.addQuad(
         quad(
           activityNode,
           schema(property),
-          literal(date.toISOString(), namedNode(XSD + "dateTime")),
+          literal(
+            point.timeText ?? point.time.toISOString(),
+            namedNode(XSD + "dateTime"),
+          ),
         ),
       );
   }
@@ -100,6 +111,7 @@ export async function serializeActivity(
     value: number,
     unit: Unit,
     statType?: string,
+    measurementTechnique?: string,
   ) => {
     const observation = namedNode(`#${id}`);
     const quantitativeValue = blankNode();
@@ -112,6 +124,14 @@ export async function serializeActivity(
     ]);
     if (statType)
       writer.addQuad(quad(observation, schema("statType"), literal(statType)));
+    if (measurementTechnique)
+      writer.addQuad(
+        quad(
+          observation,
+          schema("measurementTechnique"),
+          literal(measurementTechnique),
+        ),
+      );
     addQuantitativeValue(writer, quantitativeValue, value, unit);
   };
 
@@ -121,6 +141,8 @@ export async function serializeActivity(
       "MovingTime",
       stats.movingSeconds,
       UNITS.seconds,
+      undefined,
+      "Calculated from GPX track point timestamps",
     );
   if (stats.averageMovingKmh !== undefined)
     addObservation(
@@ -129,6 +151,7 @@ export async function serializeActivity(
       stats.averageMovingKmh,
       UNITS.kilometresPerHour,
       "Average",
+      "Calculated from GPX track points and moving time",
     );
   if (stats.maximumKmh !== undefined)
     addObservation(
@@ -137,6 +160,7 @@ export async function serializeActivity(
       stats.maximumKmh,
       UNITS.kilometresPerHour,
       "Maximum",
+      "Calculated from GPX track points using a rolling time window",
     );
   if (stats.minimumElevation !== undefined)
     addObservation(
@@ -145,6 +169,7 @@ export async function serializeActivity(
       stats.minimumElevation,
       UNITS.metres,
       "Minimum",
+      "Calculated from GPX elevation samples",
     );
   if (stats.maximumElevation !== undefined)
     addObservation(
@@ -153,6 +178,7 @@ export async function serializeActivity(
       stats.maximumElevation,
       UNITS.metres,
       "Maximum",
+      "Calculated from GPX elevation samples",
     );
   if (stats.elevationGain !== undefined)
     addObservation(
@@ -160,6 +186,8 @@ export async function serializeActivity(
       "ElevationGain",
       stats.elevationGain,
       UNITS.metres,
+      undefined,
+      "Calculated from GPX elevation samples",
     );
   if (stats.elevationLoss !== undefined)
     addObservation(
@@ -167,6 +195,8 @@ export async function serializeActivity(
       "ElevationLoss",
       stats.elevationLoss,
       UNITS.metres,
+      undefined,
+      "Calculated from GPX elevation samples",
     );
   if (stats.bounds) {
     const bounds = namedNode("#bounds");
@@ -178,6 +208,11 @@ export async function serializeActivity(
       quad(bounds, rdfType, schema("Observation")),
       quad(bounds, schema("observationAbout"), activityNode),
       quad(bounds, schema("measuredProperty"), literal("GeographicalBounds")),
+      quad(
+        bounds,
+        schema("measurementTechnique"),
+        literal("Calculated from GPX track points"),
+      ),
       quad(bounds, schema("value"), geoShape),
       quad(geoShape, rdfType, schema("GeoShape")),
       quad(

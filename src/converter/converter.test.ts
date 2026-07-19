@@ -38,6 +38,21 @@ describe("conversion core", () => {
     expect(new Parser().parse(turtle).length).toBeGreaterThan(0);
   });
 
+  it("uses segment-local rolling windows for maximum speed rather than a GPS spike", () => {
+    const xml = `<gpx><trk><trkseg><trkpt lat="0" lon="0"><time>2026-07-14T10:11:00Z</time></trkpt><trkpt lat="0" lon="0.01"><time>2026-07-14T10:11:01Z</time></trkpt><trkpt lat="0" lon="0.01"><time>2026-07-14T10:11:06Z</time></trkpt><trkpt lat="0" lon="0.0101"><time>2026-07-14T10:11:07Z</time></trkpt><trkpt lat="0" lon="0.0102"><time>2026-07-14T10:11:12Z</time></trkpt></trkseg><trkseg><trkpt lat="0" lon="1"><time>2026-07-14T10:11:13Z</time></trkpt><trkpt lat="0" lon="1.01"><time>2026-07-14T10:11:14Z</time></trkpt></trkseg></trk></gpx>`;
+    const activity = parseGpx(
+      new TextEncoder().encode(xml),
+      "spike.gpx",
+      "e".repeat(64),
+    );
+    const statistics = calculateStatistics(activity);
+
+    // The one-second 0.01° jump is ~4,000 km/h, but it is excluded once the
+    // rolling window reaches the five-second minimum duration.
+    expect(statistics.maximumKmh).toBeDefined();
+    expect(statistics.maximumKmh!).toBeLessThan(10);
+  });
+
   it("preserves source-order locations, includes all valid points in bounds, and does not bridge elevation segments", async () => {
     const xml = `<gpx><trk><trkseg><trkpt lat="60.3" lon="25.4"><ele>10</ele></trkpt><trkpt lat="60.1" lon="25.9"><ele>20</ele></trkpt></trkseg><trkseg><trkpt lat="60.4" lon="25.2"><ele>100</ele></trkpt></trkseg></trk></gpx>`;
     const activity = parseGpx(
@@ -121,8 +136,21 @@ describe("conversion core", () => {
       statistics,
       "../../source-files/2026/sparse-elevation.gpx",
     );
-    expect(turtle).not.toContain("ElevationGain");
-    expect(turtle).not.toContain("ElevationLoss");
+    const quads = new Parser().parse(turtle);
+    expect(
+      quads.some(
+        (quad) =>
+          quad.predicate.equals(schema("measuredProperty")) &&
+          quad.object.value === "ElevationGain",
+      ),
+    ).toBe(false);
+    expect(
+      quads.some(
+        (quad) =>
+          quad.predicate.equals(schema("measuredProperty")) &&
+          quad.object.value === "ElevationLoss",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -150,7 +178,36 @@ describe("RDF serialization", () => {
     );
     const quads = new Parser().parse(turtle);
 
-    expect(turtle).not.toContain("xsd:type");
+    const instrument = quads.find(
+      (quad) =>
+        quad.subject.equals(namedNode("#activity")) &&
+        quad.predicate.equals(schema("instrument")),
+    )?.object;
+    expect(instrument).toBeDefined();
+    expect(quads).toContainEqual(
+      expect.objectContaining({
+        subject: instrument,
+        predicate: schema("name"),
+        object: expect.objectContaining({ value: "Solid Fit Converter" }),
+      }),
+    );
+    expect(quads).toContainEqual(
+      expect.objectContaining({
+        subject: instrument,
+        predicate: schema("softwareVersion"),
+        object: expect.objectContaining({ value: "0.1.0" }),
+      }),
+    );
+    expect(quads).toContainEqual(
+      expect.objectContaining({
+        subject: namedNode("#maximum-speed"),
+        predicate: schema("measurementTechnique"),
+        object: expect.objectContaining({
+          value: "Calculated from GPX track points using a rolling time window",
+        }),
+      }),
+    );
+
     const rdfClasses = [
       "ExerciseAction",
       "Observation",
@@ -209,6 +266,38 @@ describe("RDF serialization", () => {
         }),
       );
     }
+  });
+  it("retains GPX timestamp precision and serializes numeric values as numeric RDF literals", async () => {
+    const activity = parseGpx(
+      new TextEncoder().encode(
+        `<gpx><trk><trkseg><trkpt lat="60.123456789" lon="24"><time>2026-07-14T10:11:00Z</time></trkpt><trkpt lat="60.123456789" lon="24.001"><time>2026-07-14T10:11:06Z</time></trkpt></trkseg></trk></gpx>`,
+      ),
+      "precision.gpx",
+      "f".repeat(64),
+    );
+    const quads = new Parser().parse(
+      await serializeActivity(
+        activity,
+        calculateStatistics(activity),
+        "../../source-files/2026/precision.gpx",
+      ),
+    );
+    const startTime = quads.find(
+      (quad) =>
+        quad.subject.equals(namedNode("#activity")) &&
+        quad.predicate.equals(schema("startTime")),
+    )?.object;
+    expect(startTime?.value).toBe("2026-07-14T10:11:00Z");
+    expect(startTime?.datatype.value).toBe(
+      "http://www.w3.org/2001/XMLSchema#dateTime",
+    );
+    const latitude = quads.find((quad) =>
+      quad.predicate.equals(schema("latitude")),
+    )?.object;
+    expect(latitude?.value).toBe("60.123456789");
+    expect(latitude?.datatype.value).not.toBe(
+      "http://www.w3.org/2001/XMLSchema#string",
+    );
   });
 });
 
