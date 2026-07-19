@@ -356,13 +356,13 @@ describe("RDF serialization", () => {
       "precision.gpx",
       "f".repeat(64),
     );
-    const quads = new Parser().parse(
-      await serializeActivity(
-        activity,
-        calculateStatistics(activity),
-        "../../source-files/2026/precision.gpx",
-      ),
+    const statistics = calculateStatistics(activity);
+    const turtle = await serializeActivity(
+      activity,
+      statistics,
+      "../../source-files/2026/precision.gpx",
     );
+    const quads = new Parser().parse(turtle);
     const startTime = quads.find(
       (quad) =>
         quad.subject.equals(namedNode("#activity")) &&
@@ -386,30 +386,29 @@ describe("RDF serialization", () => {
       "http://www.w3.org/2001/XMLSchema#string",
     );
 
-    const distanceValue = quads.find(
+    const distance = quads.find(
       (quad) =>
-        quad.predicate.equals(schema("value")) &&
-        quad.object.termType === "Literal" &&
-        quad.object.value.includes("0.111"),
+        quad.subject.equals(namedNode("#activity")) &&
+        quad.predicate.equals(schema("distance")),
     )?.object;
+    const distanceValue = distance
+      ? quads.find(
+          (quad) =>
+            quad.subject.equals(distance) &&
+            quad.predicate.equals(schema("value")),
+        )?.object
+      : undefined;
     expect(distanceValue?.termType).toBe("Literal");
     if (distanceValue?.termType !== "Literal")
       throw new Error("Expected a quantitative numeric literal");
     expect(distanceValue.datatype.value).toBe(
       "http://www.w3.org/2001/XMLSchema#decimal",
     );
-    expect(distanceValue.value).toBe(
-      String(calculateStatistics(activity).distanceMeters / 1000),
-    );
+    expect(distanceValue.value).toBe(String(statistics.distanceMeters / 1000));
     expect(Number(distanceValue.value)).toBeCloseTo(
-      calculateStatistics(activity).distanceMeters / 1000,
+      statistics.distanceMeters / 1000,
     );
-    const turtle = await serializeActivity(
-      activity,
-      calculateStatistics(activity),
-      "../../source-files/2026/precision.gpx",
-    );
-    expect(turtle).toMatch(/schema:value 0\.111/);
+    expect(turtle).toContain(`schema:value ${distanceValue.value}`);
   });
 });
 
