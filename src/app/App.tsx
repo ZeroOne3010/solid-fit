@@ -119,15 +119,15 @@ export function App() {
   return (
     <main>
       <header>
-        <p className="eyebrow">PRIVATE, BROWSER-ONLY</p>
+        <p className="eyebrow">GPX → RDF</p>
         <h1>Solid Fit Converter</h1>
         <p>Turn GPX activities into portable RDF and a tidy ZIP export.</p>
+        <p className="privacy-note">
+          <strong>Private by design.</strong> Your activity files are processed
+          locally in this browser and are not uploaded anywhere.
+        </p>
       </header>
       <section>
-        <strong>
-          Your activity files are processed locally in this browser and are not
-          uploaded anywhere.
-        </strong>
         <label className="drop">
           <input
             type="file"
