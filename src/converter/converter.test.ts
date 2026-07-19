@@ -66,7 +66,7 @@ describe("conversion core", () => {
       ),
     );
     const objectFor = (
-      subject: (typeof quads)[number]["subject"],
+      subject: (typeof quads)[number]["object"],
       predicate: string,
     ) =>
       quads.find(
