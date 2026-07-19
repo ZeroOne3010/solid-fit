@@ -14,11 +14,20 @@ const activityDateTime = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
+const activityTypeEmoji: Record<string, string> = {
+  Cycling: "🚴",
+  Running: "🏃",
+  Walking: "🚶",
+  Hiking: "🥾",
+  Swimming: "🏊",
+};
+
 function formatDuration(seconds?: number) {
   if (seconds === undefined) return "Duration unavailable";
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = Math.round(seconds % 60);
+  const roundedSeconds = Math.round(seconds);
+  const hours = Math.floor(roundedSeconds / 3600);
+  const minutes = Math.floor((roundedSeconds % 3600) / 60);
+  const remainingSeconds = roundedSeconds % 60;
   return [
     hours && `${hours}h`,
     minutes && `${minutes}m`,
@@ -77,7 +86,9 @@ export function App() {
         <li key={activity.id}>
           <b>{activity.name || activity.id}</b>
           <div className="activity-details">
-            <span>{activity.type === "Cycling" ? "🚴" : activity.type}</span>
+            <span title={activity.type}>
+              {activityTypeEmoji[activity.type] ?? activity.type}
+            </span>
             <span>
               {activity.start
                 ? activityDateTime.format(activity.start)
