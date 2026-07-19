@@ -181,6 +181,44 @@ describe("conversion core", () => {
       ),
     ).toBe(false);
   });
+
+  it("accumulates gradual elevation changes while filtering jitter within each segment", () => {
+    const gradualClimb = parseGpx(
+      new TextEncoder().encode(
+        '<gpx><trk><trkseg><trkpt lat="60" lon="24"><ele>100</ele></trkpt><trkpt lat="60" lon="24"><ele>101</ele></trkpt><trkpt lat="60" lon="24"><ele>102</ele></trkpt><trkpt lat="60" lon="24"><ele>103</ele></trkpt></trkseg></trk></gpx>',
+      ),
+      "gradual-climb.gpx",
+      "1".repeat(64),
+    );
+    expect(calculateStatistics(gradualClimb)).toMatchObject({
+      elevationGain: 3,
+      elevationLoss: 0,
+    });
+
+    const noisyFlat = parseGpx(
+      new TextEncoder().encode(
+        '<gpx><trk><trkseg><trkpt lat="60" lon="24"><ele>100</ele></trkpt><trkpt lat="60" lon="24"><ele>101</ele></trkpt><trkpt lat="60" lon="24"><ele>99</ele></trkpt><trkpt lat="60" lon="24"><ele>100</ele></trkpt></trkseg></trk></gpx>',
+      ),
+      "noisy-flat.gpx",
+      "2".repeat(64),
+    );
+    expect(calculateStatistics(noisyFlat)).toMatchObject({
+      elevationGain: 0,
+      elevationLoss: 0,
+    });
+
+    const separateSegments = parseGpx(
+      new TextEncoder().encode(
+        '<gpx><trk><trkseg><trkpt lat="60" lon="24"><ele>100</ele></trkpt><trkpt lat="60" lon="24"><ele>102</ele></trkpt></trkseg><trkseg><trkpt lat="60" lon="24"><ele>104</ele></trkpt><trkpt lat="60" lon="24"><ele>106</ele></trkpt></trkseg></trk></gpx>',
+      ),
+      "separate-segments.gpx",
+      "3".repeat(64),
+    );
+    expect(calculateStatistics(separateSegments)).toMatchObject({
+      elevationGain: 0,
+      elevationLoss: 0,
+    });
+  });
 });
 
 describe("RDF serialization", () => {
@@ -194,6 +232,7 @@ describe("RDF serialization", () => {
     };
     const statistics: ActivityStatistics = {
       distanceMeters: 1200,
+      elapsedSeconds: 313,
       movingSeconds: 360,
       averageMovingKmh: 12,
       maximumKmh: 24,
@@ -219,6 +258,19 @@ describe("RDF serialization", () => {
         predicate: schema("name"),
         object: expect.objectContaining({ value: "Solid Fit Converter" }),
       }),
+    );
+
+    const duration = quads.find(
+      (quad) =>
+        quad.subject.equals(namedNode("#activity")) &&
+        quad.predicate.equals(schema("duration")),
+    )?.object;
+    expect(duration?.termType).toBe("Literal");
+    if (duration?.termType !== "Literal")
+      throw new Error("Expected a duration literal");
+    expect(duration.value).toBe("PT313S");
+    expect(duration.datatype.value).toBe(
+      "http://www.w3.org/2001/XMLSchema#duration",
     );
     expect(quads).toContainEqual(
       expect.objectContaining({
@@ -304,13 +356,13 @@ describe("RDF serialization", () => {
       "precision.gpx",
       "f".repeat(64),
     );
-    const quads = new Parser().parse(
-      await serializeActivity(
-        activity,
-        calculateStatistics(activity),
-        "../../source-files/2026/precision.gpx",
-      ),
+    const statistics = calculateStatistics(activity);
+    const turtle = await serializeActivity(
+      activity,
+      statistics,
+      "../../source-files/2026/precision.gpx",
     );
+    const quads = new Parser().parse(turtle);
     const startTime = quads.find(
       (quad) =>
         quad.subject.equals(namedNode("#activity")) &&
@@ -333,6 +385,30 @@ describe("RDF serialization", () => {
     expect(latitude.datatype.value).not.toBe(
       "http://www.w3.org/2001/XMLSchema#string",
     );
+
+    const distance = quads.find(
+      (quad) =>
+        quad.subject.equals(namedNode("#activity")) &&
+        quad.predicate.equals(schema("distance")),
+    )?.object;
+    const distanceValue = distance
+      ? quads.find(
+          (quad) =>
+            quad.subject.equals(distance) &&
+            quad.predicate.equals(schema("value")),
+        )?.object
+      : undefined;
+    expect(distanceValue?.termType).toBe("Literal");
+    if (distanceValue?.termType !== "Literal")
+      throw new Error("Expected a quantitative numeric literal");
+    expect(distanceValue.datatype.value).toBe(
+      "http://www.w3.org/2001/XMLSchema#decimal",
+    );
+    expect(distanceValue.value).toBe(String(statistics.distanceMeters / 1000));
+    expect(Number(distanceValue.value)).toBeCloseTo(
+      statistics.distanceMeters / 1000,
+    );
+    expect(turtle).toContain(`schema:value ${distanceValue.value}`);
   });
 });
 

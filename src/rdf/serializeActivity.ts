@@ -84,7 +84,10 @@ export async function serializeActivity(
       quad(
         activityNode,
         schema("duration"),
-        literal(`PT${Math.round(stats.elapsedSeconds)}S`, schema("Duration")),
+        literal(
+          `PT${Math.round(stats.elapsedSeconds)}S`,
+          namedNode(XSD + "duration"),
+        ),
       ),
     );
   }
@@ -239,8 +242,19 @@ function addQuantitativeValue(
 ): void {
   writer.addQuads([
     quad(node, rdfType, schema("QuantitativeValue")),
-    quad(node, schema("value"), literal(value)),
+    quad(node, schema("value"), numericLiteral(value)),
     quad(node, schema("unitCode"), literal(unit.code)),
     quad(node, schema("unitText"), literal(unit.text)),
   ]);
+}
+
+/** Use Turtle's compact numeric forms while retaining the JavaScript value. */
+function numericLiteral(value: number) {
+  const lexical = String(value);
+  const datatype = Number.isInteger(value)
+    ? "integer"
+    : /e/i.test(lexical)
+      ? "double"
+      : "decimal";
+  return literal(lexical, namedNode(XSD + datatype));
 }

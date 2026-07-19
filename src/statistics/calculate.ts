@@ -85,6 +85,29 @@ function maximumRollingSpeed(
   return maximum;
 }
 
+/**
+ * Counts meaningful elevation movement without discarding a steady climb made
+ * of small samples. The anchor moves only after the accumulated difference
+ * reaches the noise threshold, so jitter around the anchor is ignored.
+ */
+function segmentElevationChange(elevations: number[]): {
+  gain: number;
+  loss: number;
+} {
+  let gain = 0;
+  let loss = 0;
+  let anchor = elevations[0];
+  for (const elevation of elevations.slice(1)) {
+    const delta = elevation - anchor;
+    if (Math.abs(delta) < movementDefaults.elevationNoiseThresholdMeters)
+      continue;
+    if (delta > 0) gain += delta;
+    else loss -= delta;
+    anchor = elevation;
+  }
+  return { gain, loss };
+}
+
 export function calculateStatistics(
   activity: NormalizedActivity,
 ): ActivityStatistics {
@@ -142,13 +165,10 @@ export function calculateStatistics(
         .filter((v): v is number => v !== undefined);
       elevations.push(...es);
       if (es.length > 1) hasElevationPair = true;
-      for (let i = 1; i < es.length; i++) {
-        const delta = es[i] - es[i - 1];
-        if (Math.abs(delta) >= movementDefaults.elevationNoiseThresholdMeters) {
-          if (delta > 0)
-            result.elevationGain = (result.elevationGain ?? 0) + delta;
-          else result.elevationLoss = (result.elevationLoss ?? 0) - delta;
-        }
+      if (es.length > 1) {
+        const change = segmentElevationChange(es);
+        result.elevationGain = (result.elevationGain ?? 0) + change.gain;
+        result.elevationLoss = (result.elevationLoss ?? 0) + change.loss;
       }
     }
   if (hasElevationPair) {
