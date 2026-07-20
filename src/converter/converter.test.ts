@@ -6,6 +6,7 @@ import { parseGpx } from "../formats/gpx/parseGpx";
 import { serializeActivity } from "../rdf/serializeActivity";
 import type { ActivityStatistics, NormalizedActivity } from "../model/activity";
 import { summarizeActivities } from "../app/importSummary";
+import afternoonRide from "./fixtures/afternoon-ride.gpx?raw";
 
 const { namedNode } = DataFactory;
 const SCHEMA = "https://schema.org/";
@@ -13,6 +14,24 @@ const RDF_TYPE = namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
 const schema = (term: string) => namedNode(SCHEMA + term);
 
 describe("conversion core", () => {
+  it("keeps the Afternoon Ride regression metrics stable", () => {
+    const activity = parseGpx(
+      new TextEncoder().encode(afternoonRide),
+      "afternoon-ride.gpx",
+      "0".repeat(64),
+    );
+    const statistics = calculateStatistics(activity);
+    expect(statistics.elapsedSeconds).toBe(313);
+    expect(statistics.movingSeconds).toBeGreaterThanOrEqual(312);
+    expect(statistics.movingSeconds).toBeLessThanOrEqual(313);
+    expect(statistics.averageMovingKmh).toBeGreaterThan(14.3);
+    expect(statistics.averageMovingKmh).toBeLessThan(14.4);
+    expect(statistics.maximumKmh).toBeCloseTo(29, 0);
+    expect(statistics.distanceMeters).toBeCloseTo(1244, -1);
+    expect(statistics.elevationGain).toBe(8);
+    expect(statistics.elevationLoss).toBe(0);
+  });
+
   it("does not bridge segments and creates stable identifiers", async () => {
     const xml = `<gpx><trk><name>Ride</name><type>bike</type><trkseg><trkpt lat="60" lon="24"><time>2026-07-14T09:16:00Z</time></trkpt><trkpt lat="60" lon="24.01"><time>2026-07-14T09:16:10Z</time></trkpt></trkseg><trkseg><trkpt lat="61" lon="25"/></trkseg></trk></gpx>`;
     const activity = parseGpx(
@@ -38,7 +57,7 @@ describe("conversion core", () => {
     expect(new Parser().parse(turtle).length).toBeGreaterThan(0);
   });
 
-  it("uses segment-local rolling windows for maximum speed rather than a GPS spike", () => {
+  it("uses segment-local centred windows for maximum speed rather than a GPS spike", () => {
     const xml = `<gpx><trk><trkseg><trkpt lat="0" lon="0"><time>2026-07-14T10:11:00Z</time></trkpt><trkpt lat="0" lon="0.01"><time>2026-07-14T10:11:01Z</time></trkpt><trkpt lat="0" lon="0.01"><time>2026-07-14T10:11:06Z</time></trkpt><trkpt lat="0" lon="0.0101"><time>2026-07-14T10:11:07Z</time></trkpt><trkpt lat="0" lon="0.0102"><time>2026-07-14T10:11:12Z</time></trkpt></trkseg><trkseg><trkpt lat="0" lon="1"><time>2026-07-14T10:11:13Z</time></trkpt><trkpt lat="0" lon="1.01"><time>2026-07-14T10:11:14Z</time></trkpt></trkseg></trk></gpx>`;
     const activity = parseGpx(
       new TextEncoder().encode(xml),
@@ -47,8 +66,8 @@ describe("conversion core", () => {
     );
     const statistics = calculateStatistics(activity);
 
-    // The one-second 0.01° jump is ~4,000 km/h, but it is excluded once the
-    // rolling window reaches the five-second minimum duration.
+    // The one-second 0.01° jump is ~4,000 km/h and is rejected by the fixed
+    // 100 km/h validation cap; no centred estimate bridges segments.
     expect(statistics.maximumKmh).toBeDefined();
     expect(statistics.maximumKmh!).toBeLessThan(10);
   });
@@ -284,7 +303,8 @@ describe("RDF serialization", () => {
         subject: namedNode("#maximum-speed"),
         predicate: schema("measurementTechnique"),
         object: expect.objectContaining({
-          value: "Calculated from GPX track points using a rolling time window",
+          value:
+            "Maximum validated two-second centred rolling speed from GPX track points",
         }),
       }),
     );

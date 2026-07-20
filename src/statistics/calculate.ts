@@ -22,67 +22,118 @@ export const distanceBetween = (
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 };
 
-/**
- * Finds the fastest valid rolling window within one GPX segment. Consecutive
- * valid point pairs form a run; a non-increasing timestamp or non-finite
- * distance ends that run, so a window can never bridge invalid data or segment
- * boundaries. For each endpoint, the leading point advances while the window
- * still satisfies the configured minimum duration. This yields the shortest
- * qualifying (and therefore most local) rolling window for that endpoint,
- * while avoiding single-pair GPS spikes.
- */
-function maximumRollingSpeed(
-  points: NormalizedTrackPoint[],
-  minimumSeconds: number,
-): number | undefined {
-  let maximum: number | undefined;
-  let run: { point: NormalizedTrackPoint; distance: number }[] = [];
-  const considerRun = () => {
-    let start = 0;
-    for (let end = 1; end < run.length; end++) {
-      while (
-        start + 1 < end &&
-        (run[end].point.time!.getTime() -
-          run[start + 1].point.time!.getTime()) /
-          1000 >=
-          minimumSeconds
-      )
-        start++;
-      const duration =
-        (run[end].point.time!.getTime() - run[start].point.time!.getTime()) /
-        1000;
-      if (duration < minimumSeconds || duration <= 0) continue;
-      const distance = run[end].distance - run[start].distance;
-      if (Number.isFinite(distance) && distance >= 0)
-        maximum = Math.max(maximum ?? 0, distance / duration);
-    }
-  };
-  const flush = () => {
-    considerRun();
-    run = [];
-  };
-  for (const point of points) {
-    if (!point.time) {
-      flush();
+/** Returns confirmed stopped seconds for one segment, without inferring edges. */
+function stoppedSeconds(points: NormalizedTrackPoint[]): number {
+  let stopped = 0;
+  let candidate:
+    | {
+        centre: NormalizedTrackPoint;
+        start: NormalizedTrackPoint;
+        confirmed: boolean;
+      }
+    | undefined;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1],
+      b = points[i];
+    if (!a.time || !b.time) {
+      candidate = undefined;
       continue;
     }
-    if (!run.length) {
-      run.push({ point, distance: 0 });
+    const seconds = (b.time.getTime() - a.time.getTime()) / 1000;
+    const distance = distanceBetween(a, b);
+    if (seconds <= 0 || !Number.isFinite(distance)) {
+      candidate = undefined;
       continue;
     }
-    const previous = run.at(-1)!;
+    const speedKmh = (distance / seconds) * 3.6;
+    if (!candidate) {
+      if (speedKmh < movementDefaults.stopEnterSpeedKmh)
+        candidate = { centre: a, start: a, confirmed: false };
+      continue;
+    }
+    const fromCentre = distanceBetween(candidate.centre, b);
+    const resumed =
+      speedKmh > movementDefaults.stopExitSpeedKmh ||
+      fromCentre > movementDefaults.stopExitRadiusMeters;
+    if (resumed) {
+      candidate = undefined;
+      continue;
+    }
+    if (fromCentre > movementDefaults.stopRadiusMeters) {
+      candidate = undefined;
+      continue;
+    }
     const duration =
-      (point.time.getTime() - previous.point.time!.getTime()) / 1000;
-    const distance = distanceBetween(previous.point, point);
-    if (duration <= 0 || !Number.isFinite(distance)) {
-      flush();
-      run.push({ point, distance: 0 });
-      continue;
-    }
-    run.push({ point, distance: previous.distance + distance });
+      (b.time.getTime() - candidate.start.time!.getTime()) / 1000;
+    if (
+      !candidate.confirmed &&
+      duration >= movementDefaults.stopMinDurationSeconds
+    ) {
+      stopped += duration;
+      candidate.confirmed = true;
+    } else if (candidate.confirmed) stopped += seconds;
   }
-  flush();
-  return maximum;
+  return stopped;
+}
+
+/**
+ * Calculates speeds centred on each three-point neighbourhood. Candidates over
+ * 40 km/h or abrupt candidates require a similar overlapping estimate,
+ * rejecting isolated jumps.
+ */
+function maximumCentredSpeed(
+  points: NormalizedTrackPoint[],
+): number | undefined {
+  const candidates: {
+    index: number;
+    speed: number;
+    requiresSupport: boolean;
+  }[] = [];
+  for (let i = 1; i < points.length - 1; i++) {
+    const a = points[i - 1],
+      middle = points[i],
+      b = points[i + 1];
+    if (!a.time || !middle.time || !b.time) continue;
+    if (
+      middle.time.getTime() <= a.time.getTime() ||
+      b.time.getTime() <= middle.time.getTime()
+    )
+      continue;
+    const seconds = (b.time.getTime() - a.time.getTime()) / 1000;
+    const distance = distanceBetween(a, b);
+    const speed = distance / seconds;
+    if (
+      seconds <= 0 ||
+      !Number.isFinite(distance) ||
+      speed * 3.6 > movementDefaults.maxValidSpeedKmh
+    )
+      continue;
+    const beforeSeconds = (middle.time.getTime() - a.time.getTime()) / 1000;
+    const afterSeconds = (b.time.getTime() - middle.time.getTime()) / 1000;
+    const beforeKmh = (distanceBetween(a, middle) / beforeSeconds) * 3.6;
+    const afterKmh = (distanceBetween(middle, b) / afterSeconds) * 3.6;
+    const acceleration =
+      Math.abs(afterKmh - beforeKmh) / ((beforeSeconds + afterSeconds) / 2);
+    candidates.push({
+      index: i,
+      speed,
+      requiresSupport:
+        speed * 3.6 > movementDefaults.highSpeedCorroborationKmh ||
+        acceleration > movementDefaults.maxAccelerationKmhPerSecond,
+    });
+  }
+  const validated = candidates.filter((candidate) => {
+    if (!candidate.requiresSupport) return true;
+    return candidates.some(
+      (other) =>
+        Math.abs(other.index - candidate.index) === 1 &&
+        Math.abs(other.speed - candidate.speed) / candidate.speed <=
+          movementDefaults.highSpeedCorroborationTolerance,
+    );
+  });
+  return validated.length
+    ? Math.max(...validated.map((candidate) => candidate.speed))
+    : undefined;
 }
 
 /**
@@ -126,7 +177,7 @@ export function calculateStatistics(
   if (result.startTime && result.endTime && result.endTime >= result.startTime)
     result.elapsedSeconds =
       (result.endTime.getTime() - result.startTime.getTime()) / 1000;
-  let moving = 0,
+  let validTrackSeconds = 0,
     maximumSpeed: number | undefined;
   const elevations: number[] = [];
   let hasElevationPair = false;
@@ -146,18 +197,11 @@ export function calculateStatistics(
             });
             continue;
           }
-          const speed = d / seconds;
-          if (
-            seconds <= movementDefaults.maximumAcceptedGapSeconds &&
-            speed >= movementDefaults.minimumSpeedMetersPerSecond
-          )
-            moving += seconds;
+          validTrackSeconds += seconds;
         }
       }
-      const segmentMaximum = maximumRollingSpeed(
-        seg.points,
-        movementDefaults.maximumSpeedWindowSeconds,
-      );
+      validTrackSeconds -= stoppedSeconds(seg.points);
+      const segmentMaximum = maximumCentredSpeed(seg.points);
       if (segmentMaximum !== undefined)
         maximumSpeed = Math.max(maximumSpeed ?? 0, segmentMaximum);
       const es = seg.points
@@ -175,8 +219,9 @@ export function calculateStatistics(
     result.elevationGain ??= 0;
     result.elevationLoss ??= 0;
   }
-  result.movingSeconds = moving || undefined;
-  if (moving) result.averageMovingKmh = (result.distanceMeters / moving) * 3.6;
+  result.movingSeconds = validTrackSeconds || undefined;
+  if (validTrackSeconds)
+    result.averageMovingKmh = (result.distanceMeters / validTrackSeconds) * 3.6;
   if (maximumSpeed !== undefined) result.maximumKmh = maximumSpeed * 3.6;
   if (elevations.length) {
     result.minimumElevation = Math.min(...elevations);

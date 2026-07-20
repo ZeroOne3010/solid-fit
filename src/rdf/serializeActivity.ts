@@ -146,7 +146,7 @@ export async function serializeActivity(
       stats.movingSeconds,
       UNITS.seconds,
       undefined,
-      "Calculated from GPX track point timestamps",
+      "Calculated using sustained-stop detection with a 10-second dwell threshold",
     );
   if (stats.averageMovingKmh !== undefined)
     addObservation(
@@ -155,7 +155,7 @@ export async function serializeActivity(
       stats.averageMovingKmh,
       UNITS.kilometresPerHour,
       "Average",
-      "Calculated from GPX track points and moving time",
+      "Calculated from total track distance and calculated moving time",
     );
   if (stats.maximumKmh !== undefined)
     addObservation(
@@ -164,7 +164,7 @@ export async function serializeActivity(
       stats.maximumKmh,
       UNITS.kilometresPerHour,
       "Maximum",
-      "Calculated from GPX track points using a rolling time window",
+      "Maximum validated two-second centred rolling speed from GPX track points",
     );
   if (stats.minimumElevation !== undefined)
     addObservation(
