@@ -69,7 +69,9 @@ describe("conversion core", () => {
     // The one-second 0.01° jump is ~4,000 km/h and is rejected by the fixed
     // 100 km/h validation cap; no centred estimate bridges segments.
     expect(statistics.maximumKmh).toBeDefined();
-    expect(statistics.maximumKmh!).toBeLessThan(10);
+    // The remaining local centred estimate is normal movement, not the jump.
+    expect(statistics.maximumKmh!).toBeGreaterThan(10);
+    expect(statistics.maximumKmh!).toBeLessThan(15);
   });
 
   it("retains timestamps from timed points when endpoints have coordinates only", async () => {

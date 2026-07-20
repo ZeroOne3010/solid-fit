@@ -47,7 +47,10 @@ function stoppedSeconds(points: NormalizedTrackPoint[]): number {
     }
     const speedKmh = (distance / seconds) * 3.6;
     if (!candidate) {
-      if (speedKmh < movementDefaults.stopEnterSpeedKmh)
+      if (
+        speedKmh < movementDefaults.stopEnterSpeedKmh &&
+        distance <= movementDefaults.stopRadiusMeters
+      )
         candidate = { centre: a, start: a, confirmed: false };
       continue;
     }
@@ -59,7 +62,10 @@ function stoppedSeconds(points: NormalizedTrackPoint[]): number {
       candidate = undefined;
       continue;
     }
-    if (fromCentre > movementDefaults.stopRadiusMeters) {
+    if (
+      !candidate.confirmed &&
+      fromCentre > movementDefaults.stopContinuousMovementMeters
+    ) {
       candidate = undefined;
       continue;
     }
@@ -126,7 +132,10 @@ function maximumCentredSpeed(
     if (!candidate.requiresSupport) return true;
     return candidates.some(
       (other) =>
-        Math.abs(other.index - candidate.index) === 1 &&
+        // Adjacent centred windows share one point-to-point interval. Requiring
+        // an index gap of two means a one-interval GPS jump cannot support
+        // itself through its neighbouring window.
+        Math.abs(other.index - candidate.index) === 2 &&
         Math.abs(other.speed - candidate.speed) / candidate.speed <=
           movementDefaults.highSpeedCorroborationTolerance,
     );

@@ -68,6 +68,13 @@ describe("sustained-stop moving time", () => {
     expect(boundaries.movingSeconds).toBe(10);
   });
 
+  it("keeps a confirmed stop while jitter remains within the exit radius", () => {
+    const stats = calculateStatistics(
+      activity([point(0), point(5, 1), point(10), point(30, 7), point(35, 20)]),
+    );
+    expect(stats.movingSeconds).toBe(5);
+  });
+
   it("ignores invalid timestamp deltas safely", () => {
     const stats = calculateStatistics(
       activity([point(0), point(10), point(5), point(15)]),
@@ -93,6 +100,13 @@ describe("centred maximum speed", () => {
     );
     expect(spike.maximumKmh).toBeCloseTo(0, 5);
     expect(implausible.maximumKmh).toBeUndefined();
+  });
+
+  it("does not let adjacent windows sharing one GPS jump corroborate it", () => {
+    const stats = calculateStatistics(
+      activity([point(0), point(1), point(2, 50), point(3, 50)]),
+    );
+    expect(stats.maximumKmh).toBeUndefined();
   });
 
   it("accepts adjacent corroborating high-speed windows", () => {

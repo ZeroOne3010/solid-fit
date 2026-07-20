@@ -6,6 +6,8 @@ export const movementDefaults = {
   stopMinDurationSeconds: 10,
   stopRadiusMeters: 6,
   stopExitRadiusMeters: 8,
+  /** Directional drift beyond this before confirmation is slow movement. */
+  stopContinuousMovementMeters: 2,
   maxValidSpeedKmh: 100,
   /** Speeds above this need an overlapping centred-window corroboration. */
   highSpeedCorroborationKmh: 40,
