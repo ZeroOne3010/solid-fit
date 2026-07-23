@@ -183,9 +183,6 @@ export function calculateStatistics(
   result.startTimeText = timed[0]?.timeText;
   result.endTime = timed.at(-1)?.time;
   result.endTimeText = timed.at(-1)?.timeText;
-  if (result.startTime && result.endTime && result.endTime >= result.startTime)
-    result.elapsedSeconds =
-      (result.endTime.getTime() - result.startTime.getTime()) / 1000;
   let validTrackSeconds = 0,
     maximumSpeed: number | undefined;
   const elevations: number[] = [];

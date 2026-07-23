@@ -62,10 +62,12 @@ describe("sustained-stop moving time", () => {
       ]),
     );
     const boundaries = calculateStatistics(
-      activity([point(0), point(5)], [point(10), point(15)]),
+      activity([point(0), point(5, 10)], [point(10, 10), point(15, 20)]),
     );
     expect(resumed.movingSeconds).toBe(10);
     expect(boundaries.movingSeconds).toBe(10);
+    // The five-second gap between segments is a pause, not track time.
+    expect(boundaries.averageMovingKmh).toBeCloseTo(7.2, 1);
   });
 
   it("keeps a confirmed stop while jitter remains within the exit radius", () => {

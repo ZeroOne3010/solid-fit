@@ -22,21 +22,6 @@ const activityTypeEmoji: Record<string, string> = {
   Swimming: "🏊",
 };
 
-function formatDuration(seconds?: number) {
-  if (seconds === undefined) return "Duration unavailable";
-  const roundedSeconds = Math.round(seconds);
-  const hours = Math.floor(roundedSeconds / 3600);
-  const minutes = Math.floor((roundedSeconds % 3600) / 60);
-  const remainingSeconds = roundedSeconds % 60;
-  return [
-    hours && `${hours}h`,
-    minutes && `${minutes}m`,
-    `${remainingSeconds}s`,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
 export function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
@@ -94,7 +79,6 @@ export function App() {
                 ? activityDateTime.format(activity.start)
                 : "Date unavailable"}
             </span>
-            <span>{formatDuration(activity.elapsed)}</span>
             <span>
               {activity.averageSpeed === undefined
                 ? "Avg speed unavailable"

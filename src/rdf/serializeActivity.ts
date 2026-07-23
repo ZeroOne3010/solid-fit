@@ -79,19 +79,6 @@ export async function serializeActivity(
         ),
       );
   }
-  if (stats.elapsedSeconds !== undefined) {
-    writer.addQuad(
-      quad(
-        activityNode,
-        schema("duration"),
-        literal(
-          `PT${Math.round(stats.elapsedSeconds)}S`,
-          namedNode(XSD + "duration"),
-        ),
-      ),
-    );
-  }
-
   const distance = blankNode();
   addQuantitativeValue(
     writer,

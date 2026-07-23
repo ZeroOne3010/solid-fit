@@ -42,7 +42,6 @@ export interface ActivityStatistics {
   endTime?: Date;
   /** Original GPX lexical form for endTime, retained to preserve precision. */
   endTimeText?: string;
-  elapsedSeconds?: number;
   movingSeconds?: number;
   distanceMeters: number;
   averageMovingKmh?: number;
