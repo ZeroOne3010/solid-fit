@@ -21,7 +21,6 @@ describe("conversion core", () => {
       "0".repeat(64),
     );
     const statistics = calculateStatistics(activity);
-    expect(statistics.elapsedSeconds).toBe(313);
     expect(statistics.movingSeconds).toBeGreaterThanOrEqual(312);
     expect(statistics.movingSeconds).toBeLessThanOrEqual(313);
     expect(statistics.averageMovingKmh).toBeGreaterThan(14.3);
@@ -253,7 +252,6 @@ describe("RDF serialization", () => {
     };
     const statistics: ActivityStatistics = {
       distanceMeters: 1200,
-      elapsedSeconds: 313,
       movingSeconds: 360,
       averageMovingKmh: 12,
       maximumKmh: 24,
@@ -281,18 +279,13 @@ describe("RDF serialization", () => {
       }),
     );
 
-    const duration = quads.find(
-      (quad) =>
-        quad.subject.equals(namedNode("#activity")) &&
-        quad.predicate.equals(schema("duration")),
-    )?.object;
-    expect(duration?.termType).toBe("Literal");
-    if (duration?.termType !== "Literal")
-      throw new Error("Expected a duration literal");
-    expect(duration.value).toBe("PT313S");
-    expect(duration.datatype.value).toBe(
-      "http://www.w3.org/2001/XMLSchema#duration",
-    );
+    expect(
+      quads.some(
+        (quad) =>
+          quad.subject.equals(namedNode("#activity")) &&
+          quad.predicate.equals(schema("duration")),
+      ),
+    ).toBe(false);
     expect(quads).toContainEqual(
       expect.objectContaining({
         subject: instrument,

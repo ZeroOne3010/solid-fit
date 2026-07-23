@@ -17,8 +17,6 @@ export interface BatchResult {
     start?: Date;
     type: string;
     distance: number;
-    elapsed?: number;
-    moving?: number;
     averageSpeed?: number;
     elevationGain?: number;
     warnings: number;
@@ -62,8 +60,6 @@ export async function convertBatch(
         start: s.startTime,
         type: a.activityType,
         distance: s.distanceMeters,
-        elapsed: s.elapsedSeconds,
-        moving: s.movingSeconds,
         averageSpeed: s.averageMovingKmh,
         elevationGain: s.elevationGain,
         warnings: a.warnings.length,
