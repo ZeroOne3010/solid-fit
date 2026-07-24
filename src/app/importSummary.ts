@@ -1,6 +1,6 @@
 import type { BatchResult } from '../converter/convertBatch';
 
-type Activity = BatchResult['activities'][number];
+type Activity = Pick<BatchResult["activities"][number], "start" | "type">;
 
 export interface ImportSummary { exerciseTypes: number; yearsCovered: number }
 
