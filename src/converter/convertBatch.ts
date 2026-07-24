@@ -8,6 +8,7 @@ import {
 import { parseGpx } from "../formats/gpx/parseGpx";
 import { calculateStatistics } from "../statistics/calculate";
 import { serializeActivity } from "../rdf/serializeActivity";
+import type { ConversionWarning } from "../model/activity";
 export interface BatchResult {
   blob: Blob;
   filename: string;
@@ -20,6 +21,9 @@ export interface BatchResult {
     averageSpeed?: number;
     elevationGain?: number;
     warnings: number;
+    warningDetails: ConversionWarning[];
+    sourcePath: string;
+    rdfPath: string;
   }[];
   duplicates: number;
   failures: { path: string; message: string }[];
@@ -63,6 +67,9 @@ export async function convertBatch(
         averageSpeed: s.averageMovingKmh,
         elevationGain: s.elevationGain,
         warnings: a.warnings.length,
+        warningDetails: a.warnings,
+        sourcePath: `fitness/${source}`,
+        rdfPath: `fitness/${rdf}`,
       });
     } catch (error) {
       failures.push({
@@ -101,4 +108,29 @@ export async function convertBatch(
     duplicates: inputs.length - seen.size,
     failures,
   };
+}
+
+/** Builds a ZIP containing only the activities chosen in the export screen. */
+export async function createSelectedExport(
+  result: BatchResult,
+  selectedIds: ReadonlySet<string>,
+): Promise<Blob> {
+  const zip = await JSZip.loadAsync(result.blob);
+  const selectedActivities = result.activities.filter((activity) =>
+    selectedIds.has(activity.id),
+  );
+  for (const activity of result.activities) {
+    if (!selectedIds.has(activity.id)) {
+      zip.remove(activity.sourcePath);
+      zip.remove(activity.rdfPath);
+    }
+  }
+  const manifestFile = zip.file("fitness/manifest.json");
+  if (manifestFile) {
+    const manifest = JSON.parse(await manifestFile.async("text"));
+    manifest.activities = selectedActivities;
+    manifest.summary.converted = selectedActivities.length;
+    zip.file("fitness/manifest.json", JSON.stringify(manifest, null, 2));
+  }
+  return zip.generateAsync({ type: "blob" });
 }
