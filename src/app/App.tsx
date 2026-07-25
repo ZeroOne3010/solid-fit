@@ -1,5 +1,9 @@
 import { useRef, useState } from "react";
-import { convertBatch, type BatchResult } from "../converter/convertBatch";
+import {
+  convertBatch,
+  createSelectedExport,
+  type BatchResult,
+} from "../converter/convertBatch";
 import { summarizeActivities } from "./importSummary";
 import "./app.css";
 
@@ -26,6 +30,8 @@ export function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [status, setStatus] = useState("");
   const [result, setResult] = useState<BatchResult>();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isPreparingDownload, setIsPreparingDownload] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const cancelRef = useRef(false);
   const run = async () => {
@@ -40,6 +46,7 @@ export function App() {
         () => cancelRef.current,
       );
       setResult(converted);
+      setSelectedIds(new Set(converted.activities.map((activity) => activity.id)));
       setStatus("Conversion complete.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Conversion failed");
@@ -50,26 +57,55 @@ export function App() {
     setCancelled(true);
     setStatus("Cancelling after the current file…");
   };
-  const download = () => {
+  const download = async () => {
     if (!result) return;
-    const url = URL.createObjectURL(result.blob),
-      link = document.createElement("a");
-    link.href = url;
-    link.download = result.filename;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setIsPreparingDownload(true);
+    try {
+      const blob = await createSelectedExport(result, selectedIds);
+      const url = URL.createObjectURL(blob),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } finally {
+      setIsPreparingDownload(false);
+    }
   };
   const startOver = () => {
     setResult(undefined);
     setFiles([]);
     setStatus("");
+    setSelectedIds(new Set());
   };
   const summary = result ? summarizeActivities(result.activities) : undefined;
+  const toggleActivity = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const selectAll = (selected: boolean) => {
+    setSelectedIds(
+      selected && result
+        ? new Set(result.activities.map((activity) => activity.id))
+        : new Set(),
+    );
+  };
   const activityList = result && (
     <ul className="activity-list">
       {result.activities.map((activity) => (
         <li key={activity.id}>
-          <b>{activity.name || activity.id}</b>
+          <label className="activity-select">
+            <input
+              type="checkbox"
+              checked={selectedIds.has(activity.id)}
+              onChange={() => toggleActivity(activity.id)}
+            />
+            <b>{activity.name || activity.id}</b>
+          </label>
           <div className="activity-details">
             <span title={activity.type}>
               {activityTypeEmoji[activity.type] ?? activity.type}
@@ -90,10 +126,17 @@ export function App() {
                 : `${Math.round(activity.elevationGain)} m elev. gain`}
             </span>
             {activity.warnings > 0 && (
-              <span className="activity-warning">
-                ⚠️ {activity.warnings} warning
-                {activity.warnings === 1 ? "" : "s"}
-              </span>
+              <details className="activity-warnings">
+                <summary>
+                  ⚠️ {activity.warnings} warning
+                  {activity.warnings === 1 ? "" : "s"}
+                </summary>
+                <ul>
+                  {activity.warningDetails.map((warning, index) => (
+                    <li key={`${warning.code}-${index}`}>{warning.message}</li>
+                  ))}
+                </ul>
+              </details>
             )}
           </div>
         </li>
@@ -168,8 +211,15 @@ export function App() {
               <small>years covered</small>
             </b>
           </div>
-          <button onClick={download}>
-            Download ZIP ({Math.ceil(result.blob.size / 1024)} KB)
+          <button
+            disabled={!selectedIds.size || isPreparingDownload}
+            onClick={() => void download()}
+          >
+            {isPreparingDownload
+              ? "Preparing download…"
+              : `Download ${selectedIds.size} selected as ZIP (${Math.ceil(
+                  result.blob.size / 1024,
+                )} KB)`}
           </button>
           <button className="secondary" onClick={startOver}>
             Start over
@@ -189,16 +239,29 @@ export function App() {
               ))}
             </details>
           )}
-          {result.activities.length === 1
-            ? activityList
-            : result.activities.length > 1 && (
-                <details className="activities">
-                  <summary>
-                    Show converted activities ({result.activities.length})
-                  </summary>
-                  {activityList}
-                </details>
-              )}
+          {result.activities.length > 0 && (
+            <details className="activities" open>
+              <summary>
+                Select activities to export ({selectedIds.size} of{" "}
+                {result.activities.length})
+              </summary>
+              <label className="select-all">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === result.activities.length}
+                  ref={(input) => {
+                    if (input)
+                      input.indeterminate =
+                        selectedIds.size > 0 &&
+                        selectedIds.size < result.activities.length;
+                  }}
+                  onChange={(event) => selectAll(event.target.checked)}
+                />
+                Select all / none
+              </label>
+              {activityList}
+            </details>
+          )}
         </section>
       )}
       <footer>

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import JSZip from "jszip";
 import { DataFactory, Parser } from "n3";
 import { distanceBetween, calculateStatistics } from "../statistics/calculate";
 import { createActivityId } from "../identifiers/createActivityId";
@@ -6,6 +7,10 @@ import { parseGpx } from "../formats/gpx/parseGpx";
 import { serializeActivity } from "../rdf/serializeActivity";
 import type { ActivityStatistics, NormalizedActivity } from "../model/activity";
 import { summarizeActivities } from "../app/importSummary";
+import {
+  createSelectedExport,
+  type BatchResult,
+} from "./convertBatch";
 import afternoonRide from "./fixtures/afternoon-ride.gpx?raw";
 
 const { namedNode } = DataFactory;
@@ -461,5 +466,58 @@ describe("import feedback", () => {
         { id: "c", type: "Running", distance: 0, warnings: 0 },
       ]),
     ).toEqual({ exerciseTypes: 2, yearsCovered: 2 });
+  });
+});
+
+describe("selected exports", () => {
+  it("omits conversion-session metadata from a partial export", async () => {
+    const zip = new JSZip();
+    const activities: BatchResult["activities"] = ["a", "b"].map((id) => ({
+      id,
+      type: "Cycling",
+      distance: 0,
+      warnings: 0,
+      warningDetails: [],
+      sourcePath: `fitness/source-files/unknown/${id}.gpx`,
+      rdfPath: `fitness/activities/unknown/${id}.ttl`,
+    }));
+    for (const activity of activities) {
+      zip.file(activity.sourcePath, "gpx");
+      zip.file(activity.rdfPath, "rdf");
+    }
+    zip.file(
+      "fitness/manifest.json",
+      JSON.stringify({
+        summary: { inputFiles: 5, converted: 2, duplicates: 2, failed: 1 },
+        activities,
+        duplicates: [{ path: "duplicate.gpx" }],
+        failures: [{ path: "broken.gpx", message: "broken" }],
+      }),
+    );
+    const result: BatchResult = {
+      blob: await zip.generateAsync({ type: "blob" }),
+      filename: "export.zip",
+      activities,
+      duplicates: 2,
+      failures: [{ path: "broken.gpx", message: "broken" }],
+    };
+
+    const selectedBlob = await createSelectedExport(result, new Set(["a"]));
+    const selectedZip = await JSZip.loadAsync(selectedBlob);
+    const manifest = JSON.parse(
+      await selectedZip.file("fitness/manifest.json")!.async("text"),
+    );
+
+    expect(manifest.summary).toEqual({
+      inputFiles: 1,
+      converted: 1,
+      duplicates: 0,
+      failed: 0,
+    });
+    expect(manifest.activities).toHaveLength(1);
+    expect(manifest.duplicates).toEqual([]);
+    expect(manifest.failures).toEqual([]);
+    expect(selectedZip.file(activities[0].sourcePath)).not.toBeNull();
+    expect(selectedZip.file(activities[1].sourcePath)).toBeNull();
   });
 });
