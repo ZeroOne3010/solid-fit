@@ -95,13 +95,17 @@ export function parseGpx(
   const metadataType = text(
     [...xml.getElementsByTagNameNS("*", "type")][0] ?? null,
   );
+  const metadataActivityType = typeFor(metadataType);
   return {
     sourceFilename,
     sourceHash,
     name:
       tracks.find((t) => t.name)?.name ||
       text([...xml.getElementsByTagNameNS("*", "name")][0] ?? null),
-    activityType: typeFor(metadataType),
+    activityType:
+      metadataActivityType === "Unknown"
+        ? typeFor(sourceFilename)
+        : metadataActivityType,
     tracks,
     warnings,
   };
