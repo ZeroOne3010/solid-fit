@@ -3,11 +3,15 @@ import { readInputs } from "../archive/readInputArchive";
 import {
   hashSource,
   createActivityId,
+  createShareableActivityId,
   yearFor,
 } from "../identifiers/createActivityId";
 import { parseGpx } from "../formats/gpx/parseGpx";
 import { calculateStatistics } from "../statistics/calculate";
-import { serializeActivity } from "../rdf/serializeActivity";
+import {
+  serializeActivity,
+  serializeShareableActivity,
+} from "../rdf/serializeActivity";
 import type { ConversionWarning } from "../model/activity";
 export interface BatchResult {
   blob: Blob;
@@ -23,6 +27,7 @@ export interface BatchResult {
     warnings: number;
     warningDetails: ConversionWarning[];
     sourcePath: string;
+    sourceRdfPath: string;
     rdfPath: string;
   }[];
   duplicates: number;
@@ -50,14 +55,17 @@ export async function convertBatch(
       const a = parseGpx(input.bytes, input.path, hash),
         s = calculateStatistics(a),
         id = createActivityId(hash, s.startTime),
+        shareableId = createShareableActivityId(hash, s.startTime),
         year = yearFor(s.startTime),
         source = `source-files/${year}/${id}.gpx`,
-        rdf = `activities/${year}/${id}.ttl`;
+        sourceRdf = `source-files/${year}/${id}.ttl`,
+        rdf = `activities/${year}/${shareableId}.ttl`;
       zip.file(`fitness/${source}`, input.bytes);
       zip.file(
-        `fitness/${rdf}`,
-        await serializeActivity(a, s, `../../${source}`),
+        `fitness/${sourceRdf}`,
+        await serializeActivity(a, s, `./${id}.gpx`),
       );
+      zip.file(`fitness/${rdf}`, await serializeShareableActivity(a, s));
       activities.push({
         id,
         name: a.name,
@@ -69,6 +77,7 @@ export async function convertBatch(
         warnings: a.warnings.length,
         warningDetails: a.warnings,
         sourcePath: `fitness/${source}`,
+        sourceRdfPath: `fitness/${sourceRdf}`,
         rdfPath: `fitness/${rdf}`,
       });
     } catch (error) {
@@ -122,6 +131,7 @@ export async function createSelectedExport(
   for (const activity of result.activities) {
     if (!selectedIds.has(activity.id)) {
       zip.remove(activity.sourcePath);
+      zip.remove(activity.sourceRdfPath);
       zip.remove(activity.rdfPath);
     }
   }

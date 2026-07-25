@@ -2,15 +2,18 @@ import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 import { DataFactory, Parser } from "n3";
 import { distanceBetween, calculateStatistics } from "../statistics/calculate";
-import { createActivityId } from "../identifiers/createActivityId";
+import {
+  createActivityId,
+  createShareableActivityId,
+} from "../identifiers/createActivityId";
 import { parseGpx } from "../formats/gpx/parseGpx";
-import { serializeActivity } from "../rdf/serializeActivity";
+import {
+  serializeActivity,
+  serializeShareableActivity,
+} from "../rdf/serializeActivity";
 import type { ActivityStatistics, NormalizedActivity } from "../model/activity";
 import { summarizeActivities } from "../app/importSummary";
-import {
-  createSelectedExport,
-  type BatchResult,
-} from "./convertBatch";
+import { createSelectedExport, type BatchResult } from "./convertBatch";
 import afternoonRide from "./fixtures/afternoon-ride.gpx?raw";
 
 const { namedNode } = DataFactory;
@@ -39,11 +42,8 @@ describe("conversion core", () => {
   it("falls back to case-insensitive exercise names in the source filename", () => {
     const xml = `<gpx><trk><trkseg><trkpt lat="60" lon="24"/></trkseg></trk></gpx>`;
     const activityTypeFor = (sourceFilename: string) =>
-      parseGpx(
-        new TextEncoder().encode(xml),
-        sourceFilename,
-        "0".repeat(64),
-      ).activityType;
+      parseGpx(new TextEncoder().encode(xml), sourceFilename, "0".repeat(64))
+        .activityType;
 
     expect(
       activityTypeFor("imports/2022-07-11_16:30:44-CYCLING.388386040.gpx"),
@@ -84,6 +84,9 @@ describe("conversion core", () => {
     expect(createActivityId("a".repeat(64), statistics.startTime)).toBe(
       "20260714T091600Z-aaaaaaaaaaaa",
     );
+    expect(
+      createShareableActivityId("a".repeat(64), statistics.startTime),
+    ).toBe("2026-07-aaaaaaaaaaaa");
     const turtle = await serializeActivity(
       activity,
       statistics,
@@ -278,6 +281,78 @@ describe("conversion core", () => {
 });
 
 describe("RDF serialization", () => {
+  it("creates a rounded, location-free shareable summary while preserving the full summary", async () => {
+    const activity: NormalizedActivity = {
+      sourceFilename: "private-name.gpx",
+      sourceHash: "a".repeat(64),
+      name: "Home to the secret office",
+      activityType: "Cycling",
+      tracks: [],
+      warnings: [],
+    };
+    const statistics: ActivityStatistics = {
+      start: { latitude: 60.1, longitude: 24.2 },
+      end: { latitude: 60.3, longitude: 24.4 },
+      startTime: new Date("2026-07-14T10:11:12Z"),
+      endTime: new Date("2026-08-01T00:01:02Z"),
+      distanceMeters: 23124,
+      averageMovingKmh: 23.06,
+      maximumKmh: 41.28,
+      minimumElevation: 10.49,
+      maximumElevation: 80.51,
+      elevationGain: 123.6,
+      elevationLoss: 98.4,
+      bounds: {
+        minLatitude: 60,
+        minLongitude: 24,
+        maxLatitude: 61,
+        maxLongitude: 25,
+      },
+    };
+    const full = await serializeActivity(
+      activity,
+      statistics,
+      "../../source-files/2026/private-name.gpx",
+    );
+    const shareable = await serializeShareableActivity(activity, statistics);
+    const quads = new Parser().parse(shareable);
+    const values = (predicate: string) =>
+      quads
+        .filter((quad) => quad.predicate.equals(schema(predicate)))
+        .map((quad) => quad.object.value);
+
+    expect(values("name")).toContain("Cycling 23.1 km/h");
+    expect(values("startTime")).toEqual(["2026-07"]);
+    expect(values("endTime")).toEqual(["2026-08"]);
+    expect(values("value")).toEqual(
+      expect.arrayContaining([
+        "23.12",
+        "23.1",
+        "41.3",
+        "10",
+        "81",
+        "124",
+        "98",
+      ]),
+    );
+    for (const property of [
+      "fromLocation",
+      "toLocation",
+      "latitude",
+      "longitude",
+      "box",
+      "contentUrl",
+      "subjectOf",
+    ])
+      expect(values(property)).toEqual([]);
+    expect(shareable).not.toContain("private-name");
+    expect(full).toContain("Home to the secret office");
+    expect(full).toContain("2026-07-14T10:11:12Z");
+    expect(full).toContain("60.1");
+    expect(full).toContain("private-name.gpx");
+    expect(full).toContain("23.06");
+  });
+
   it("uses rdf:type, supplies statistic types, and gives every quantitative value a complete unit", async () => {
     const activity: NormalizedActivity = {
       sourceFilename: "ride.gpx",
@@ -510,10 +585,12 @@ describe("selected exports", () => {
       warnings: 0,
       warningDetails: [],
       sourcePath: `fitness/source-files/unknown/${id}.gpx`,
+      sourceRdfPath: `fitness/source-files/unknown/${id}.ttl`,
       rdfPath: `fitness/activities/unknown/${id}.ttl`,
     }));
     for (const activity of activities) {
       zip.file(activity.sourcePath, "gpx");
+      zip.file(activity.sourceRdfPath, "source rdf");
       zip.file(activity.rdfPath, "rdf");
     }
     zip.file(
@@ -550,5 +627,6 @@ describe("selected exports", () => {
     expect(manifest.failures).toEqual([]);
     expect(selectedZip.file(activities[0].sourcePath)).not.toBeNull();
     expect(selectedZip.file(activities[1].sourcePath)).toBeNull();
+    expect(selectedZip.file(activities[1].sourceRdfPath)).toBeNull();
   });
 });
