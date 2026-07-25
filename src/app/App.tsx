@@ -4,6 +4,7 @@ import {
   createSelectedExport,
   type BatchResult,
 } from "../converter/convertBatch";
+import { formatDownloadSize } from "./downloadSize";
 import { summarizeActivities } from "./importSummary";
 import "./app.css";
 
@@ -217,9 +218,11 @@ export function App() {
           >
             {isPreparingDownload
               ? "Preparing download…"
-              : `Download ${selectedIds.size} selected as ZIP (${Math.ceil(
-                  result.blob.size / 1024,
-                )} KB)`}
+              : `Download ${selectedIds.size} selected as ZIP (${formatDownloadSize(
+                  result.blob.size,
+                  selectedIds.size,
+                  result.activities.length,
+                )})`}
           </button>
           <button className="secondary" onClick={startOver}>
             Start over
