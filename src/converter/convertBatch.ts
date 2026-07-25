@@ -129,7 +129,16 @@ export async function createSelectedExport(
   if (manifestFile) {
     const manifest = JSON.parse(await manifestFile.async("text"));
     manifest.activities = selectedActivities;
-    manifest.summary.converted = selectedActivities.length;
+    if (selectedActivities.length < result.activities.length) {
+      manifest.summary = {
+        inputFiles: selectedActivities.length,
+        converted: selectedActivities.length,
+        duplicates: 0,
+        failed: 0,
+      };
+      manifest.duplicates = [];
+      manifest.failures = [];
+    }
     zip.file("fitness/manifest.json", JSON.stringify(manifest, null, 2));
   }
   return zip.generateAsync({ type: "blob" });
