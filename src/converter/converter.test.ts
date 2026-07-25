@@ -36,6 +36,37 @@ describe("conversion core", () => {
     expect(statistics.elevationLoss).toBe(0);
   });
 
+  it("falls back to case-insensitive exercise names in the source filename", () => {
+    const xml = `<gpx><trk><trkseg><trkpt lat="60" lon="24"/></trkseg></trk></gpx>`;
+    const activityTypeFor = (sourceFilename: string) =>
+      parseGpx(
+        new TextEncoder().encode(xml),
+        sourceFilename,
+        "0".repeat(64),
+      ).activityType;
+
+    expect(
+      activityTypeFor("imports/2022-07-11_16:30:44-CYCLING.388386040.gpx"),
+    ).toBe("Cycling");
+    expect(activityTypeFor("morning-WaLkInG-route.gpx")).toBe("Walking");
+    expect(activityTypeFor("archive/RUNNING/2026-07-25.gpx")).toBe("Running");
+    expect(activityTypeFor("unclassified.gpx")).toBe("Unknown");
+    expect(activityTypeFor("brunch.gpx")).toBe("Unknown");
+    expect(activityTypeFor("override.gpx")).toBe("Unknown");
+  });
+
+  it("prefers a known GPX activity type over the filename fallback", () => {
+    const activity = parseGpx(
+      new TextEncoder().encode(
+        `<gpx><trk><type>walking</type><trkseg><trkpt lat="60" lon="24"/></trkseg></trk></gpx>`,
+      ),
+      "afternoon-CYCLING.gpx",
+      "0".repeat(64),
+    );
+
+    expect(activity.activityType).toBe("Walking");
+  });
+
   it("does not bridge segments and creates stable identifiers", async () => {
     const xml = `<gpx><trk><name>Ride</name><type>bike</type><trkseg><trkpt lat="60" lon="24"><time>2026-07-14T09:16:00Z</time></trkpt><trkpt lat="60" lon="24.01"><time>2026-07-14T09:16:10Z</time></trkpt></trkseg><trkseg><trkpt lat="61" lon="25"/></trkseg></trk></gpx>`;
     const activity = parseGpx(
