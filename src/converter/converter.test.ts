@@ -322,8 +322,18 @@ describe("RDF serialization", () => {
         .map((quad) => quad.object.value);
 
     expect(values("name")).toContain("Cycling 23.1 km/h");
-    expect(values("startTime")).toEqual(["2026-07"]);
-    expect(values("endTime")).toEqual(["2026-08"]);
+    expect(values("temporalCoverage")).toEqual(["2026-07/2026-08"]);
+    const temporalCoverage = quads.find((quad) =>
+      quad.predicate.equals(schema("temporalCoverage")),
+    )?.object;
+    expect(temporalCoverage?.termType).toBe("Literal");
+    if (temporalCoverage?.termType !== "Literal")
+      throw new Error("Expected temporal coverage text");
+    expect(temporalCoverage.datatype.value).toBe(
+      "http://www.w3.org/2001/XMLSchema#string",
+    );
+    expect(values("startTime")).toEqual([]);
+    expect(values("endTime")).toEqual([]);
     expect(values("value")).toEqual(
       expect.arrayContaining([
         "23.12",

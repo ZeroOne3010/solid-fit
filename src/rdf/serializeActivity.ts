@@ -82,27 +82,35 @@ async function serialize(
       ]);
     }
 
-  for (const [property, endpoint, time, timeText] of [
-    ["startTime", stats.start, stats.startTime, stats.startTimeText],
-    ["endTime", stats.end, stats.endTime, stats.endTimeText],
-  ] as const) {
-    const timestamp = endpoint?.time ?? time;
-    if (timestamp) {
-      const value = options.privacyReduced
-        ? timestamp.toISOString().slice(0, 7)
-        : (endpoint?.timeText ?? timeText ?? timestamp.toISOString());
+  if (options.privacyReduced) {
+    const startMonth = monthOf(stats.start?.time ?? stats.startTime);
+    const endMonth = monthOf(stats.end?.time ?? stats.endTime);
+    const temporalCoverage = monthCoverage(startMonth, endMonth);
+    if (temporalCoverage)
       writer.addQuad(
         quad(
           activityNode,
-          schema(property),
-          literal(
-            value,
-            namedNode(
-              XSD + (options.privacyReduced ? "gYearMonth" : "dateTime"),
-            ),
-          ),
+          schema("temporalCoverage"),
+          literal(temporalCoverage),
         ),
       );
+  } else {
+    for (const [property, endpoint, time, timeText] of [
+      ["startTime", stats.start, stats.startTime, stats.startTimeText],
+      ["endTime", stats.end, stats.endTime, stats.endTimeText],
+    ] as const) {
+      const timestamp = endpoint?.time ?? time;
+      if (timestamp)
+        writer.addQuad(
+          quad(
+            activityNode,
+            schema(property),
+            literal(
+              endpoint?.timeText ?? timeText ?? timestamp.toISOString(),
+              namedNode(XSD + "dateTime"),
+            ),
+          ),
+        );
     }
   }
   const distance = blankNode();
@@ -265,6 +273,13 @@ function syntheticName(type: string, averageSpeed?: number): string {
   return averageSpeed === undefined
     ? type
     : `${type} ${roundSpeed(averageSpeed).toFixed(1)} km/h`;
+}
+
+const monthOf = (date?: Date) => date?.toISOString().slice(0, 7);
+
+function monthCoverage(start?: string, end?: string): string | undefined {
+  if (start && end && start !== end) return `${start}/${end}`;
+  return start ?? end;
 }
 
 const roundSpeed = (value: number) => Math.round(value * 10) / 10;
