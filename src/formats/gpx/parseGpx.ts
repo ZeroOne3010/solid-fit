@@ -13,6 +13,16 @@ const typeFor = (value?: string): ActivityType => {
   if (/swim|swimming/.test(v)) return "Swimming";
   return "Unknown";
 };
+const typeForFilename = (filename: string): ActivityType => {
+  const tokens = new Set(filename.toLowerCase().split(/[^a-z0-9]+/));
+  if (["cycling", "bike", "biking", "ride"].some((v) => tokens.has(v)))
+    return "Cycling";
+  if (["run", "running"].some((v) => tokens.has(v))) return "Running";
+  if (["walk", "walking"].some((v) => tokens.has(v))) return "Walking";
+  if (["hike", "hiking"].some((v) => tokens.has(v))) return "Hiking";
+  if (["swim", "swimming"].some((v) => tokens.has(v))) return "Swimming";
+  return "Unknown";
+};
 export function parseGpx(
   bytes: Uint8Array,
   sourceFilename: string,
@@ -104,7 +114,7 @@ export function parseGpx(
       text([...xml.getElementsByTagNameNS("*", "name")][0] ?? null),
     activityType:
       metadataActivityType === "Unknown"
-        ? typeFor(sourceFilename)
+        ? typeForFilename(sourceFilename)
         : metadataActivityType,
     tracks,
     warnings,

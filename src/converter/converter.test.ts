@@ -51,6 +51,8 @@ describe("conversion core", () => {
     expect(activityTypeFor("morning-WaLkInG-route.gpx")).toBe("Walking");
     expect(activityTypeFor("archive/RUNNING/2026-07-25.gpx")).toBe("Running");
     expect(activityTypeFor("unclassified.gpx")).toBe("Unknown");
+    expect(activityTypeFor("brunch.gpx")).toBe("Unknown");
+    expect(activityTypeFor("override.gpx")).toBe("Unknown");
   });
 
   it("prefers a known GPX activity type over the filename fallback", () => {
