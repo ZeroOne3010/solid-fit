@@ -332,6 +332,23 @@ describe("RDF serialization", () => {
     expect(temporalCoverage.datatype.value).toBe(
       "http://www.w3.org/2001/XMLSchema#string",
     );
+    expect(shareable.match(/^<#activity>/gm)).toHaveLength(1);
+
+    const singleMonth = new Parser().parse(
+      await serializeShareableActivity(activity, {
+        ...statistics,
+        endTime: new Date("2026-07-31T23:59:59Z"),
+      }),
+    );
+    const singleMonthCoverage = singleMonth.find((quad) =>
+      quad.predicate.equals(schema("temporalCoverage")),
+    )?.object;
+    expect(singleMonthCoverage?.value).toBe("2026-07");
+    expect(
+      singleMonthCoverage?.termType === "Literal"
+        ? singleMonthCoverage.datatype.value
+        : undefined,
+    ).toBe("http://www.w3.org/2001/XMLSchema#gYearMonth");
     expect(values("startTime")).toEqual([]);
     expect(values("endTime")).toEqual([]);
     expect(values("value")).toEqual(
