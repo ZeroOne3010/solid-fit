@@ -8,6 +8,7 @@ const RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const XSD = "http://www.w3.org/2001/XMLSchema#";
 const schema = (value: string) => namedNode(SCHEMA + value);
 const rdfType = namedNode(RDF + "type");
+type SerializedQuad = ReturnType<typeof quad>;
 
 interface Unit {
   code: string;
@@ -46,13 +47,20 @@ async function serialize(
     prefixes: { schema: SCHEMA, rdf: RDF, xsd: XSD },
   });
   const activityNode = namedNode("#activity");
+  const activityQuads: SerializedQuad[] = [];
+  const detailQuads: SerializedQuad[] = [];
+  const addQuad = (value: SerializedQuad) =>
+    (value.subject.equals(activityNode) ? activityQuads : detailQuads).push(
+      value,
+    );
+  const addQuads = (values: SerializedQuad[]) => values.forEach(addQuad);
 
-  writer.addQuad(quad(activityNode, rdfType, schema("ExerciseAction")));
-  writer.addQuad(
+  addQuad(quad(activityNode, rdfType, schema("ExerciseAction")));
+  addQuad(
     quad(activityNode, schema("exerciseType"), literal(activity.activityType)),
   );
   const instrument = blankNode();
-  writer.addQuads([
+  addQuads([
     quad(activityNode, schema("instrument"), instrument),
     quad(instrument, rdfType, schema("SoftwareApplication")),
     quad(instrument, schema("name"), literal("Solid Fit Converter")),
@@ -62,7 +70,7 @@ async function serialize(
     ? syntheticName(activity.activityType, stats.averageMovingKmh)
     : activity.name;
   if (displayName)
-    writer.addQuad(quad(activityNode, schema("name"), literal(displayName)));
+    addQuad(quad(activityNode, schema("name"), literal(displayName)));
 
   if (!options.privacyReduced)
     for (const [property, point] of [
@@ -72,7 +80,7 @@ async function serialize(
       if (!point) continue;
       const place = blankNode();
       const geo = blankNode();
-      writer.addQuads([
+      addQuads([
         quad(activityNode, schema(property), place),
         quad(place, rdfType, schema("Place")),
         quad(place, schema("geo"), geo),
@@ -87,11 +95,13 @@ async function serialize(
     const endMonth = monthOf(stats.end?.time ?? stats.endTime);
     const temporalCoverage = monthCoverage(startMonth, endMonth);
     if (temporalCoverage)
-      writer.addQuad(
+      addQuad(
         quad(
           activityNode,
           schema("temporalCoverage"),
-          literal(temporalCoverage),
+          temporalCoverage.includes("/")
+            ? literal(temporalCoverage)
+            : literal(temporalCoverage, namedNode(XSD + "gYearMonth")),
         ),
       );
   } else {
@@ -101,7 +111,7 @@ async function serialize(
     ] as const) {
       const timestamp = endpoint?.time ?? time;
       if (timestamp)
-        writer.addQuad(
+        addQuad(
           quad(
             activityNode,
             schema(property),
@@ -115,18 +125,18 @@ async function serialize(
   }
   const distance = blankNode();
   addQuantitativeValue(
-    writer,
+    addQuads,
     distance,
     (options.privacyReduced
       ? roundDistance(stats.distanceMeters)
       : stats.distanceMeters) / 1000,
     UNITS.kilometres,
   );
-  writer.addQuad(quad(activityNode, schema("distance"), distance));
+  addQuad(quad(activityNode, schema("distance"), distance));
 
   if (options.sourceLink) {
     const media = blankNode();
-    writer.addQuads([
+    addQuads([
       quad(activityNode, schema("subjectOf"), media),
       quad(media, rdfType, schema("MediaObject")),
       quad(media, schema("contentUrl"), namedNode(options.sourceLink)),
@@ -144,7 +154,7 @@ async function serialize(
   ) => {
     const observation = namedNode(`#${id}`);
     const quantitativeValue = blankNode();
-    writer.addQuads([
+    addQuads([
       quad(activityNode, schema("result"), observation),
       quad(observation, rdfType, schema("Observation")),
       quad(observation, schema("observationAbout"), activityNode),
@@ -152,16 +162,16 @@ async function serialize(
       quad(observation, schema("value"), quantitativeValue),
     ]);
     if (statType)
-      writer.addQuad(quad(observation, schema("statType"), literal(statType)));
+      addQuad(quad(observation, schema("statType"), literal(statType)));
     if (measurementTechnique)
-      writer.addQuad(
+      addQuad(
         quad(
           observation,
           schema("measurementTechnique"),
           literal(measurementTechnique),
         ),
       );
-    addQuantitativeValue(writer, quantitativeValue, value, unit);
+    addQuantitativeValue(addQuads, quantitativeValue, value, unit);
   };
 
   if (stats.movingSeconds !== undefined)
@@ -242,7 +252,7 @@ async function serialize(
     const geoShape = blankNode();
     const { minLatitude, minLongitude, maxLatitude, maxLongitude } =
       stats.bounds;
-    writer.addQuads([
+    addQuads([
       quad(activityNode, schema("result"), bounds),
       quad(bounds, rdfType, schema("Observation")),
       quad(bounds, schema("observationAbout"), activityNode),
@@ -264,6 +274,7 @@ async function serialize(
     ]);
   }
 
+  writer.addQuads([...activityQuads, ...detailQuads]);
   return new Promise((resolve, reject) =>
     writer.end((error, result) => (error ? reject(error) : resolve(result))),
   );
@@ -287,12 +298,12 @@ const roundElevation = (value: number) => Math.round(value);
 const roundDistance = (value: number) => Math.round(value / 10) * 10;
 
 function addQuantitativeValue(
-  writer: Writer,
+  addQuads: (values: SerializedQuad[]) => void,
   node: ReturnType<typeof blankNode>,
   value: number,
   unit: Unit,
 ): void {
-  writer.addQuads([
+  addQuads([
     quad(node, rdfType, schema("QuantitativeValue")),
     quad(node, schema("value"), numericLiteral(value)),
     quad(node, schema("unitCode"), literal(unit.code)),
