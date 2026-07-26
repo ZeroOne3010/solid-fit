@@ -1,4 +1,4 @@
-import { DataFactory, Writer } from "n3";
+import { DataFactory, Writer, type Quad } from "n3";
 import packageJson from "../../package.json";
 import type { ActivityStatistics, NormalizedActivity } from "../model/activity";
 
@@ -8,7 +8,6 @@ const RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const XSD = "http://www.w3.org/2001/XMLSchema#";
 const schema = (value: string) => namedNode(SCHEMA + value);
 const rdfType = namedNode(RDF + "type");
-type SerializedQuad = ReturnType<typeof quad>;
 
 interface Unit {
   code: string;
@@ -47,13 +46,13 @@ async function serialize(
     prefixes: { schema: SCHEMA, rdf: RDF, xsd: XSD },
   });
   const activityNode = namedNode("#activity");
-  const activityQuads: SerializedQuad[] = [];
-  const detailQuads: SerializedQuad[] = [];
-  const addQuad = (value: SerializedQuad) =>
+  const activityQuads: Quad[] = [];
+  const detailQuads: Quad[] = [];
+  const addQuad = (value: Quad) =>
     (value.subject.equals(activityNode) ? activityQuads : detailQuads).push(
       value,
     );
-  const addQuads = (values: SerializedQuad[]) => values.forEach(addQuad);
+  const addQuads = (values: Quad[]) => values.forEach(addQuad);
 
   addQuad(quad(activityNode, rdfType, schema("ExerciseAction")));
   addQuad(
@@ -298,7 +297,7 @@ const roundElevation = (value: number) => Math.round(value);
 const roundDistance = (value: number) => Math.round(value / 10) * 10;
 
 function addQuantitativeValue(
-  addQuads: (values: SerializedQuad[]) => void,
+  addQuads: (values: Quad[]) => void,
   node: ReturnType<typeof blankNode>,
   value: number,
   unit: Unit,
