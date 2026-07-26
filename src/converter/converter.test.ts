@@ -357,7 +357,7 @@ describe("RDF serialization", () => {
       expect(values(property)).toEqual([]);
     expect(shareable).not.toContain("private-name");
     expect(full).toContain("Home to the secret office");
-    expect(full).toContain("2026-07-14T10:11:12Z");
+    expect(full).toContain(statistics.startTime!.toISOString());
     expect(full).toContain("60.1");
     expect(full).toContain("private-name.gpx");
     expect(full).toContain("23.06");
