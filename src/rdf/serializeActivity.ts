@@ -26,6 +26,22 @@ export async function serializeActivity(
   stats: ActivityStatistics,
   sourceLink: string,
 ): Promise<string> {
+  return serialize(activity, stats, { sourceLink });
+}
+
+/** Serializes a deliberately coarsened activity suitable for wider sharing. */
+export async function serializeShareableActivity(
+  activity: NormalizedActivity,
+  stats: ActivityStatistics,
+): Promise<string> {
+  return serialize(activity, stats, { privacyReduced: true });
+}
+
+async function serialize(
+  activity: NormalizedActivity,
+  stats: ActivityStatistics,
+  options: { sourceLink?: string; privacyReduced?: boolean },
+): Promise<string> {
   const writer = new Writer({
     prefixes: { schema: SCHEMA, rdf: RDF, xsd: XSD },
   });
@@ -42,59 +58,81 @@ export async function serializeActivity(
     quad(instrument, schema("name"), literal("Solid Fit Converter")),
     quad(instrument, schema("softwareVersion"), literal(packageJson.version)),
   ]);
-  if (activity.name)
-    writer.addQuad(quad(activityNode, schema("name"), literal(activity.name)));
+  const displayName = options.privacyReduced
+    ? syntheticName(activity.activityType, stats.averageMovingKmh)
+    : activity.name;
+  if (displayName)
+    writer.addQuad(quad(activityNode, schema("name"), literal(displayName)));
 
-  for (const [property, point] of [
-    ["fromLocation", stats.start],
-    ["toLocation", stats.end],
-  ] as const) {
-    if (!point) continue;
-    const place = blankNode();
-    const geo = blankNode();
-    writer.addQuads([
-      quad(activityNode, schema(property), place),
-      quad(place, rdfType, schema("Place")),
-      quad(place, schema("geo"), geo),
-      quad(geo, rdfType, schema("GeoCoordinates")),
-      quad(geo, schema("latitude"), literal(point.latitude)),
-      quad(geo, schema("longitude"), literal(point.longitude)),
-    ]);
-  }
+  if (!options.privacyReduced)
+    for (const [property, point] of [
+      ["fromLocation", stats.start],
+      ["toLocation", stats.end],
+    ] as const) {
+      if (!point) continue;
+      const place = blankNode();
+      const geo = blankNode();
+      writer.addQuads([
+        quad(activityNode, schema(property), place),
+        quad(place, rdfType, schema("Place")),
+        quad(place, schema("geo"), geo),
+        quad(geo, rdfType, schema("GeoCoordinates")),
+        quad(geo, schema("latitude"), literal(point.latitude)),
+        quad(geo, schema("longitude"), literal(point.longitude)),
+      ]);
+    }
 
-  for (const [property, endpoint, time, timeText] of [
-    ["startTime", stats.start, stats.startTime, stats.startTimeText],
-    ["endTime", stats.end, stats.endTime, stats.endTimeText],
-  ] as const) {
-    const timestamp = endpoint?.time ?? time;
-    if (timestamp)
+  if (options.privacyReduced) {
+    const startMonth = monthOf(stats.start?.time ?? stats.startTime);
+    const endMonth = monthOf(stats.end?.time ?? stats.endTime);
+    const temporalCoverage = monthCoverage(startMonth, endMonth);
+    if (temporalCoverage)
       writer.addQuad(
         quad(
           activityNode,
-          schema(property),
-          literal(
-            endpoint?.timeText ?? timeText ?? timestamp.toISOString(),
-            namedNode(XSD + "dateTime"),
-          ),
+          schema("temporalCoverage"),
+          literal(temporalCoverage),
         ),
       );
+  } else {
+    for (const [property, endpoint, time, timeText] of [
+      ["startTime", stats.start, stats.startTime, stats.startTimeText],
+      ["endTime", stats.end, stats.endTime, stats.endTimeText],
+    ] as const) {
+      const timestamp = endpoint?.time ?? time;
+      if (timestamp)
+        writer.addQuad(
+          quad(
+            activityNode,
+            schema(property),
+            literal(
+              endpoint?.timeText ?? timeText ?? timestamp.toISOString(),
+              namedNode(XSD + "dateTime"),
+            ),
+          ),
+        );
+    }
   }
   const distance = blankNode();
   addQuantitativeValue(
     writer,
     distance,
-    stats.distanceMeters / 1000,
+    (options.privacyReduced
+      ? roundDistance(stats.distanceMeters)
+      : stats.distanceMeters) / 1000,
     UNITS.kilometres,
   );
   writer.addQuad(quad(activityNode, schema("distance"), distance));
 
-  const media = blankNode();
-  writer.addQuads([
-    quad(activityNode, schema("subjectOf"), media),
-    quad(media, rdfType, schema("MediaObject")),
-    quad(media, schema("contentUrl"), namedNode(sourceLink)),
-    quad(media, schema("encodingFormat"), literal("application/gpx+xml")),
-  ]);
+  if (options.sourceLink) {
+    const media = blankNode();
+    writer.addQuads([
+      quad(activityNode, schema("subjectOf"), media),
+      quad(media, rdfType, schema("MediaObject")),
+      quad(media, schema("contentUrl"), namedNode(options.sourceLink)),
+      quad(media, schema("encodingFormat"), literal("application/gpx+xml")),
+    ]);
+  }
 
   const addObservation = (
     id: string,
@@ -139,7 +177,9 @@ export async function serializeActivity(
     addObservation(
       "average-speed",
       "Speed",
-      stats.averageMovingKmh,
+      options.privacyReduced
+        ? roundSpeed(stats.averageMovingKmh)
+        : stats.averageMovingKmh,
       UNITS.kilometresPerHour,
       "Average",
       "Calculated from total track distance and calculated moving time",
@@ -148,7 +188,7 @@ export async function serializeActivity(
     addObservation(
       "maximum-speed",
       "Speed",
-      stats.maximumKmh,
+      options.privacyReduced ? roundSpeed(stats.maximumKmh) : stats.maximumKmh,
       UNITS.kilometresPerHour,
       "Maximum",
       "Maximum validated two-second centred rolling speed from GPX track points",
@@ -157,7 +197,9 @@ export async function serializeActivity(
     addObservation(
       "minimum-elevation",
       "Elevation",
-      stats.minimumElevation,
+      options.privacyReduced
+        ? roundElevation(stats.minimumElevation)
+        : stats.minimumElevation,
       UNITS.metres,
       "Minimum",
       "Calculated from GPX elevation samples",
@@ -166,7 +208,9 @@ export async function serializeActivity(
     addObservation(
       "maximum-elevation",
       "Elevation",
-      stats.maximumElevation,
+      options.privacyReduced
+        ? roundElevation(stats.maximumElevation)
+        : stats.maximumElevation,
       UNITS.metres,
       "Maximum",
       "Calculated from GPX elevation samples",
@@ -175,7 +219,9 @@ export async function serializeActivity(
     addObservation(
       "elevation-gain",
       "ElevationGain",
-      stats.elevationGain,
+      options.privacyReduced
+        ? roundElevation(stats.elevationGain)
+        : stats.elevationGain,
       UNITS.metres,
       undefined,
       "Calculated from GPX elevation samples",
@@ -184,12 +230,14 @@ export async function serializeActivity(
     addObservation(
       "elevation-loss",
       "ElevationLoss",
-      stats.elevationLoss,
+      options.privacyReduced
+        ? roundElevation(stats.elevationLoss)
+        : stats.elevationLoss,
       UNITS.metres,
       undefined,
       "Calculated from GPX elevation samples",
     );
-  if (stats.bounds) {
+  if (stats.bounds && !options.privacyReduced) {
     const bounds = namedNode("#bounds");
     const geoShape = blankNode();
     const { minLatitude, minLongitude, maxLatitude, maxLongitude } =
@@ -220,6 +268,23 @@ export async function serializeActivity(
     writer.end((error, result) => (error ? reject(error) : resolve(result))),
   );
 }
+
+function syntheticName(type: string, averageSpeed?: number): string {
+  return averageSpeed === undefined
+    ? type
+    : `${type} ${roundSpeed(averageSpeed).toFixed(1)} km/h`;
+}
+
+const monthOf = (date?: Date) => date?.toISOString().slice(0, 7);
+
+function monthCoverage(start?: string, end?: string): string | undefined {
+  if (start && end && start !== end) return `${start}/${end}`;
+  return start ?? end;
+}
+
+const roundSpeed = (value: number) => Math.round(value * 10) / 10;
+const roundElevation = (value: number) => Math.round(value);
+const roundDistance = (value: number) => Math.round(value / 10) * 10;
 
 function addQuantitativeValue(
   writer: Writer,
